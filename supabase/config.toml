@@ -1,0 +1,7 @@
+project_id = "udazwobxdvwcfejlvsbj"
+
+# Public write endpoint: JWT verification is off so the widget can call it with just
+# the publishable key. Security is enforced inside the function via the per-site
+# Origin allowlist, not by a JWT.
+[functions.post-comment]
+verify_jwt = false

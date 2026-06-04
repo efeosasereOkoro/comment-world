@@ -104,7 +104,7 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
 
   // ---- live data feed ------------------------------------------------
 
-  const store = new CommentStore(pageKey, (comments) => {
+  const store = new CommentStore(config.siteId, pageKey, (comments) => {
     state.comments = comments;
     updateCount();
     renderPins();

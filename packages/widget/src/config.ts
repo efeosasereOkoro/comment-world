@@ -6,5 +6,11 @@
 export const SUPABASE_URL: string = import.meta.env.VITE_SUPABASE_URL ?? "";
 export const SUPABASE_KEY: string = import.meta.env.VITE_SUPABASE_KEY ?? "";
 
+/** Base URL for Supabase Edge Functions, derived from the project URL.
+ *  The widget's write path posts to `${FUNCTIONS_URL}/post-comment`. */
+export const FUNCTIONS_URL: string = SUPABASE_URL
+  ? SUPABASE_URL.replace(/\/+$/, "") + "/functions/v1"
+  : "";
+
 /** localStorage key for remembering the commenter's name across sessions. */
 export const NAME_KEY = "commentbox::name";

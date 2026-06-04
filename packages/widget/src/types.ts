@@ -27,6 +27,7 @@ export interface Comment {
 /** Raw row shape returned by the backend `comments` table. */
 export interface CommentRow {
   id: string;
+  site_id: string;
   page: string;
   selector: string | null;
   quote: string | null;

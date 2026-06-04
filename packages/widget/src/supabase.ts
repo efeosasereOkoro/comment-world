@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
-import { SUPABASE_URL, SUPABASE_KEY } from "./config";
+import { SUPABASE_URL, SUPABASE_KEY, FUNCTIONS_URL } from "./config";
 import type { Comment, CommentRow } from "./types";
 
 // Lazy-init: supabase-js is bundled into widget.js, but the client itself is only
@@ -30,16 +30,18 @@ export interface NewComment {
 }
 
 /**
- * Owns the live feed of comments for a single page key. Encapsulates fetch +
+ * Owns the live feed of comments for a single site + page. Encapsulates fetch +
  * realtime subscription + insert so {@link init} carries no module-level state.
  *
- * Phase 3 will add a `site_id` filter to every query and route inserts through the
- * origin-checked `post-comment` Edge Function instead of a direct table insert.
+ * Reads are scoped by `site_id` AND `page` (tenant isolation). Inserts are NOT done
+ * directly against the table — they are POSTed to the origin-checked `post-comment`
+ * Edge Function, the only path allowed to write comments (RLS blocks anon inserts).
  */
 export class CommentStore {
   private channel: RealtimeChannel | null = null;
 
   constructor(
+    private readonly siteId: string,
     private readonly pageKey: string,
     private readonly onChange: (comments: Comment[]) => void
   ) {}
@@ -60,7 +62,11 @@ export class CommentStore {
   async fetch(): Promise<void> {
     const supabase = getClient();
     if (!supabase) return;
-    const res = await supabase.from("comments").select("*").eq("page", this.pageKey);
+    const res = await supabase
+      .from("comments")
+      .select("*")
+      .eq("site_id", this.siteId)
+      .eq("page", this.pageKey);
     if (res.error) {
       console.error("[commentbox] fetch error", res.error);
       return;
@@ -72,11 +78,13 @@ export class CommentStore {
     const supabase = getClient();
     if (!supabase) return;
     await this.fetch();
+    // Realtime postgres_changes supports a single filter expression, so we filter on
+    // the more selective site_id and re-fetch (which re-scopes by site_id AND page).
     this.channel = supabase
-      .channel("comments:" + this.pageKey)
+      .channel("comments:" + this.siteId + ":" + this.pageKey)
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "comments", filter: "page=eq." + this.pageKey },
+        { event: "*", schema: "public", table: "comments", filter: "site_id=eq." + this.siteId },
         () => {
           void this.fetch();
         }
@@ -85,19 +93,37 @@ export class CommentStore {
   }
 
   async add(comment: NewComment): Promise<void> {
-    const supabase = getClient();
-    if (!supabase) {
+    if (!FUNCTIONS_URL || !SUPABASE_KEY) {
       alert("Comments are unavailable: the backend is not configured yet.");
       throw new Error("supabase not configured");
     }
-    const res = await supabase.from("comments").insert({
-      page: this.pageKey,
-      selector: comment.selector,
-      quote: comment.quote,
-      author: comment.name,
-      content: comment.text,
+    // Writes go through the origin-checked Edge Function, never a direct insert.
+    const res = await fetch(FUNCTIONS_URL + "/post-comment", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_KEY,
+        Authorization: "Bearer " + SUPABASE_KEY,
+      },
+      body: JSON.stringify({
+        siteId: this.siteId,
+        page: this.pageKey,
+        selector: comment.selector,
+        quote: comment.quote,
+        name: comment.name,
+        text: comment.text,
+      }),
     });
-    if (res.error) throw res.error;
+    if (!res.ok) {
+      let detail = "";
+      try {
+        detail = ((await res.json()) as { error?: string })?.error ?? "";
+      } catch {
+        /* ignore non-JSON body */
+      }
+      throw new Error("post-comment failed: " + res.status + (detail ? " " + detail : ""));
+    }
+    // Realtime will deliver the new row; refetch immediately as a fallback.
     await this.fetch();
   }
 
