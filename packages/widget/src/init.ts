@@ -2,15 +2,17 @@
  * Reviewers select text or click a component to attach a named comment. Comments are
  * stored centrally and sync in real time, so everyone on the page sees the same set.
  *
- * This is the original `comments.js` logic refactored into a single `init()` entry
- * point with NO module-level state or implicit globals — everything lives inside the
- * call. Behavior and UX are unchanged from the original. (Shadow-DOM isolation and the
- * single-file bundle land in Phase 2.) */
+ * All widget UI (toolbar, popover, panel, hint) is rendered INTO the shadow root passed
+ * in by the loader, so it is fully isolated from the host page's CSS. The only light-DOM
+ * pieces are the pins overlay and the host-element decorations (hover outline / target
+ * highlight) — both are self-scoped via inline styles and never rely on host CSS.
+ * Hit-testing across the shadow boundary uses event.composedPath(). */
 
 import type { Comment, WidgetConfig } from "./types";
 import { NAME_KEY } from "./config";
 import { computePageKey } from "./page-key";
 import { getSelector, resolveTarget, elementFromSelection } from "./selector";
+import { addHoverOutline, removeHoverOutline, addHighlight, removeHighlight } from "./host-decor";
 import { CommentStore } from "./supabase";
 
 interface WidgetState {
@@ -21,9 +23,29 @@ interface WidgetState {
   targetHighlight: Element | null;
 }
 
-/** Boot the annotation widget for a given site + page. Returns a teardown function. */
-export function init(config: WidgetConfig): () => void {
+// Inline style for the light-DOM pins overlay container (anchored at document origin).
+const PINS_LAYER_CSS =
+  "position:absolute!important;top:0!important;left:0!important;width:0!important;" +
+  "height:0!important;margin:0!important;padding:0!important;border:0!important;" +
+  "pointer-events:none!important;z-index:8500!important;";
+
+// Inline style for an individual pin (resists host button/* rules via !important).
+const PIN_CSS =
+  "position:absolute!important;transform:translate(-50%,-50%)!important;" +
+  "box-sizing:border-box!important;width:1.8rem!important;height:1.8rem!important;" +
+  "min-width:0!important;margin:0!important;padding:0!important;" +
+  "border:2px solid #fff!important;border-radius:50% 50% 50% 0!important;" +
+  "background:#00267f!important;color:#fff!important;" +
+  "font:700 0.8125rem/1 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif!important;" +
+  "display:flex!important;align-items:center!important;justify-content:center!important;" +
+  "cursor:pointer!important;pointer-events:auto!important;text-transform:none!important;" +
+  "letter-spacing:normal!important;box-shadow:0 2px 5px rgba(0,0,0,.3)!important;";
+
+/** Boot the annotation widget for a given site + page, rendering UI into `root`
+ *  (the widget's shadow root). Returns a teardown function. */
+export function init(config: WidgetConfig, root: ShadowRoot): () => void {
   const pageKey = computePageKey(config.pageId);
+  const uiHost = root.host; // the light-DOM element hosting the shadow tree
 
   const state: WidgetState = {
     mode: false,
@@ -46,8 +68,10 @@ export function init(config: WidgetConfig): () => void {
     return new Date(ts).toLocaleString();
   }
 
-  function isOwnUi(el: Element | null): Element | null {
-    return el ? el.closest(".cmt-toolbar, .cmt-popover, .cmt-pins, .cmt-panel, .cmt-hint") : null;
+  /** True if the event originated within the widget's own UI (shadow tree or pins). */
+  function eventInWidget(e: Event): boolean {
+    const path = e.composedPath();
+    return path.includes(uiHost) || path.includes(pins);
   }
 
   // ---- toolbar -------------------------------------------------------
@@ -68,7 +92,7 @@ export function init(config: WidgetConfig): () => void {
 
   toolbar.appendChild(addBtn);
   toolbar.appendChild(panelBtn);
-  document.body.appendChild(toolbar);
+  root.appendChild(toolbar);
 
   const countEl = panelBtn.querySelector(".cmt-btn__count") as HTMLElement;
 
@@ -91,10 +115,10 @@ export function init(config: WidgetConfig): () => void {
     }
   });
 
-  // ---- pins overlay --------------------------------------------------
+  // ---- pins overlay (light DOM, inline-styled) -----------------------
 
   const pins = document.createElement("div");
-  pins.className = "cmt-pins";
+  pins.style.cssText = PINS_LAYER_CSS;
   document.body.appendChild(pins);
 
   function groupedBySelector(): Record<string, Comment[]> {
@@ -114,10 +138,10 @@ export function init(config: WidgetConfig): () => void {
       const rect = el.getBoundingClientRect();
       const pin = document.createElement("button");
       pin.type = "button";
-      pin.className = "cmt-pin";
+      pin.style.cssText = PIN_CSS;
+      pin.style.setProperty("left", rect.right + window.scrollX + "px", "important");
+      pin.style.setProperty("top", rect.top + window.scrollY + "px", "important");
       pin.textContent = String(groups[selector].length);
-      pin.style.left = rect.right + window.scrollX + "px";
-      pin.style.top = rect.top + window.scrollY + "px";
       pin.addEventListener("click", (e) => {
         e.stopPropagation();
         openThread(selector, pin);
@@ -143,7 +167,7 @@ export function init(config: WidgetConfig): () => void {
   function setMode(on: boolean): void {
     state.mode = on;
     addBtn.setAttribute("aria-pressed", String(on));
-    document.body.classList.toggle("cmt-mode", on);
+    document.body.style.cursor = on ? "crosshair" : "";
     clearHover();
     if (on) {
       showHint("Select text or click any element to comment. Press Esc to cancel.");
@@ -157,26 +181,30 @@ export function init(config: WidgetConfig): () => void {
   }
 
   function onHoverMove(e: MouseEvent): void {
-    const el = e.target as Element | null;
-    if (!el || isOwnUi(el)) {
+    if (eventInWidget(e)) {
+      clearHover();
+      return;
+    }
+    const el = e.composedPath()[0] as Element | undefined;
+    if (!el || el.nodeType !== 1) {
       clearHover();
       return;
     }
     if (el === state.hoverEl) return;
     clearHover();
     state.hoverEl = el;
-    el.classList.add("cmt-hover-outline");
+    addHoverOutline(el);
   }
 
   function clearHover(): void {
     if (state.hoverEl) {
-      state.hoverEl.classList.remove("cmt-hover-outline");
+      removeHoverOutline(state.hoverEl);
       state.hoverEl = null;
     }
   }
 
   function onPlaceClick(e: MouseEvent): void {
-    if (isOwnUi(e.target as Element)) return;
+    if (eventInWidget(e)) return;
     e.preventDefault();
     e.stopPropagation();
 
@@ -188,9 +216,9 @@ export function init(config: WidgetConfig): () => void {
       quote = sel.toString().trim();
       targetEl = elementFromSelection(sel);
     } else {
-      targetEl = e.target as Element;
+      targetEl = (e.composedPath()[0] as Element) ?? (e.target as Element);
     }
-    if (isOwnUi(targetEl)) return;
+    if (!targetEl) return;
 
     const selector = getSelector(targetEl);
     clearHover();
@@ -212,16 +240,16 @@ export function init(config: WidgetConfig): () => void {
       state.popover = null;
     }
     if (state.targetHighlight) {
-      state.targetHighlight.classList.remove("cmt-target-highlight");
+      removeHighlight(state.targetHighlight);
       state.targetHighlight = null;
     }
   }
 
   function placePopover(pop: HTMLElement, x: number, y: number): void {
-    document.body.appendChild(pop);
+    root.appendChild(pop);
     const w = pop.offsetWidth;
     const h = pop.offsetHeight;
-    let left = Math.min(x, window.scrollX + document.documentElement.clientWidth - w - 8);
+    const left = Math.min(x, window.scrollX + document.documentElement.clientWidth - w - 8);
     let top = y + 12;
     if (top + h > window.scrollY + document.documentElement.clientHeight) {
       top = Math.max(window.scrollY + 8, y - h - 12);
@@ -233,17 +261,18 @@ export function init(config: WidgetConfig): () => void {
   function highlightTarget(selector: string): Element | null {
     const el = resolveTarget(selector);
     if (el) {
-      el.classList.add("cmt-target-highlight");
+      addHighlight(el);
       state.targetHighlight = el;
     }
     return el;
   }
 
   document.addEventListener("mousedown", (e) => {
-    const target = e.target as Element;
-    if (state.popover && !state.popover.contains(target) && !target.closest(".cmt-pin")) {
-      closePopover();
-    }
+    if (!state.popover) return;
+    const path = e.composedPath();
+    if (path.includes(state.popover)) return; // click inside the popover
+    if (path.includes(pins)) return; // a pin manages its own open/close
+    closePopover();
   });
 
   // ---- composer (new comment) ----------------------------------------
@@ -384,7 +413,7 @@ export function init(config: WidgetConfig): () => void {
     '<div class="cmt-panel__head"><span>Comments on this page</span>' +
     '<button type="button" class="cmt-close" aria-label="Close panel">&times;</button></div>' +
     '<div class="cmt-panel__body"></div>';
-  document.body.appendChild(panel);
+  root.appendChild(panel);
   (panel.querySelector(".cmt-close") as HTMLElement).addEventListener("click", () => {
     panel.classList.remove("is-open");
   });
@@ -431,10 +460,11 @@ export function init(config: WidgetConfig): () => void {
         const el = resolveTarget(selector);
         if (el) {
           el.scrollIntoView({ behavior: "smooth", block: "center" });
-          highlightTarget(selector);
+          addHighlight(el);
+          state.targetHighlight = el;
           setTimeout(() => {
             if (state.targetHighlight === el) {
-              el.classList.remove("cmt-target-highlight");
+              removeHighlight(el);
               state.targetHighlight = null;
             }
           }, 1600);
@@ -452,7 +482,7 @@ export function init(config: WidgetConfig): () => void {
     hint = document.createElement("div");
     hint.className = "cmt-hint";
     hint.textContent = msg;
-    document.body.appendChild(hint);
+    root.appendChild(hint);
   }
   function hideHint(): void {
     if (hint) {

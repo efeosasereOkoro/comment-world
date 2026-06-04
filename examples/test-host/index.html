@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>commentbox — isolation test host</title>
+
+    <!-- A DIFFERENT CSS framework than the widget assumes (Bootstrap 5). -->
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+    />
+
+    <!-- Deliberately ADVERSARIAL global CSS: if the widget weren't isolated, these
+         !important rules would wreck its toolbar, popovers and inputs. They should
+         only affect this host page's own elements, never the widget's shadow UI. -->
+    <style>
+      * {
+        font-family: "Comic Sans MS", "Comic Sans", cursive !important;
+        letter-spacing: 1px !important;
+      }
+      button {
+        background: #cc0000 !important;
+        color: #00ff00 !important;
+        border: 4px dotted purple !important;
+        border-radius: 0 !important;
+        font-size: 26px !important;
+        padding: 18px 24px !important;
+        text-transform: uppercase !important;
+      }
+      input,
+      textarea {
+        background: yellow !important;
+        color: hotpink !important;
+        border: 3px solid lime !important;
+      }
+      aside,
+      .cmt-popover,
+      .cmt-toolbar {
+        filter: invert(1) !important;
+      }
+      h1,
+      h2,
+      p {
+        color: hotpink !important;
+      }
+    </style>
+  </head>
+  <body class="container py-4">
+    <h1 class="mb-3">Isolation test host</h1>
+    <p class="lead">
+      This page loads Bootstrap and adds hostile global CSS (Comic Sans everywhere, red
+      buttons with green text, yellow inputs, an <code>invert()</code> filter aimed at
+      <code>.cmt-toolbar</code>/<code>.cmt-popover</code>). The commentbox widget below
+      should look completely normal — its own blue toolbar, white popover and plain
+      inputs — proving the host's CSS cannot reach into the widget's Shadow DOM.
+    </p>
+
+    <div class="card my-4" id="section-one">
+      <div class="card-body">
+        <h2 class="card-title">A Bootstrap card</h2>
+        <p class="card-text">
+          Select this text or click any element to attach a comment. The host's own
+          button below is styled by the hostile CSS; the widget's buttons must not be.
+        </p>
+        <button type="button" class="btn btn-primary">A host button</button>
+      </div>
+    </div>
+
+    <ul class="list-group mb-4">
+      <li class="list-group-item">First list item</li>
+      <li class="list-group-item">Second list item</li>
+      <li class="list-group-item">Third list item</li>
+    </ul>
+
+    <p class="text-muted">
+      Backend is intentionally unconfigured here, so saving a comment shows an
+      "unavailable" notice — this page exists to verify <em>style isolation</em>, not
+      persistence.
+    </p>
+
+    <!-- Installed exactly as a real host would: two tags, no build, no type=module. -->
+    <script>
+      window.CommentWidget = { siteId: "test-host" };
+    </script>
+    <script async src="/packages/widget/dist/widget.js"></script>
+  </body>
+</html>

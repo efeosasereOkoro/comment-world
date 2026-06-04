@@ -1,12 +1,33 @@
-/* commentbox loader / entry point.
- * Reads configuration from `window.CommentWidget`, then boots the annotation core.
+/* commentbox loader / entry point (the published widget.js).
  *
- * Phase 1: styles are injected into <head> (light DOM) via the CSS import below, and
- * UI is appended to <body>. Phase 2 replaces this with a Shadow DOM container that
- * receives the inlined CSS, so the widget is fully isolated from the host page. */
+ * Reads configuration from `window.CommentWidget`, attaches a Shadow DOM container to
+ * the page, injects the bundled CSS into the shadow root, then boots the annotation
+ * core. Using Shadow DOM means the host page's CSS cannot affect the widget's UI and
+ * the widget's CSS cannot leak into the host. supabase-js is bundled in and
+ * lazy-initialized on first use (see supabase.ts). */
 
-import "./styles.css";
+// `?inline` returns the (processed, minified) CSS as a string instead of emitting a
+// separate stylesheet, so everything ships inside the single widget.js file.
+import styleText from "./styles.css?inline";
 import { init } from "./init";
+
+const HOST_ID = "commentbox-root";
+
+function mount(): ShadowRoot | null {
+  if (document.getElementById(HOST_ID)) {
+    // Already installed once on this page — don't double-mount.
+    return null;
+  }
+  const host = document.createElement("div");
+  host.id = HOST_ID;
+  document.body.appendChild(host);
+
+  const shadow = host.attachShadow({ mode: "open" });
+  const style = document.createElement("style");
+  style.textContent = styleText;
+  shadow.appendChild(style);
+  return shadow;
+}
 
 function boot(): void {
   const cfg = window.CommentWidget;
@@ -18,7 +39,9 @@ function boot(): void {
     );
     return;
   }
-  init({ siteId, pageId: cfg?.pageId });
+  const root = mount();
+  if (!root) return;
+  init({ siteId, pageId: cfg?.pageId }, root);
 }
 
 if (document.readyState === "loading") {

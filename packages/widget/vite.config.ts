@@ -1,8 +1,9 @@
 import { defineConfig } from "vite";
 
-// Phase 1: this config serves the dev harness (packages/widget/index.html) and
-// produces a first build. The single-file IIFE bundle with INLINED css and a
-// lazy-loaded Supabase client is finalized in Phase 2.
+// Builds the embeddable widget as a single self-contained file: one IIFE bundle with
+// the CSS inlined (imported via `?inline` and injected into the shadow root) and
+// supabase-js bundled in (lazy-initialized at runtime). The host needs no build step
+// and no `type="module"` — just <script async src="widget.js">.
 export default defineConfig({
   build: {
     target: "es2018",
@@ -12,7 +13,6 @@ export default defineConfig({
       formats: ["iife"],
       fileName: () => "widget.js",
     },
-    // Keep everything in one file; CSS inlining into the JS bundle lands in Phase 2.
     cssCodeSplit: false,
     minify: "esbuild",
     emptyOutDir: true,

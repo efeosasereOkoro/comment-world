@@ -1,10 +1,12 @@
-/* commentbox widget styling.
-   All host-design-system variables from the original have been replaced with
-   self-contained --cw-* tokens so the widget never depends on host CSS.
-   Phase 1 defines the tokens on :root (light DOM); Phase 2 relocates them onto the
-   shadow root's :host and moves all UI rules inside the shadow tree. */
+/* commentbox widget styling — injected into the widget's Shadow DOM root.
+   All rules here apply ONLY inside the shadow tree, so the host page's CSS cannot
+   reach them and these rules cannot leak out. Tokens live on :host.
+   Host-targeting decorations (hover outline, target highlight) and the pins overlay
+   live in light DOM and are applied as inline styles instead — see host-decor.ts
+   and pins rendering in init.ts. */
 
-:root {
+:host {
+  all: initial;
   --cw-primary: #00267f;
   --cw-primary-weak: #e5e9f2;
   --cw-surface: #ffffff;
@@ -78,49 +80,9 @@
   color: var(--cw-primary);
 }
 
-/* Comment-mode affordances (these target host elements, hence the !important). */
-body.cmt-mode {
-  cursor: crosshair;
-}
-
-.cmt-hover-outline {
-  outline: 2px dashed var(--cw-accent) !important;
-  outline-offset: 2px;
-}
-
-.cmt-target-highlight {
-  background: var(--cw-highlight) !important;
-  box-shadow: 0 0 0 3px var(--cw-highlight-ring);
-  transition: background 0.2s ease;
-}
-
-/* Pins overlay (light DOM in every phase; self-scoped). */
-.cmt-pins {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 8500;
-}
-
-.cmt-pin {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  width: 1.8rem;
-  height: 1.8rem;
-  border: 2px solid var(--cw-surface);
-  border-radius: 50% 50% 50% 0;
-  background: var(--cw-primary);
-  color: var(--cw-surface);
-  font-family: var(--cw-font);
-  font-size: var(--cw-fs-sm);
-  font-weight: var(--cw-fw-bold);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  pointer-events: auto;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
-}
+/* The hover outline, target highlight, comment-mode cursor, and pins overlay are
+   NOT styled here — they decorate host (light-DOM) elements and are applied as
+   self-scoped inline styles (host-decor.ts / pins rendering). */
 
 /* Popover (composer + thread) */
 .cmt-popover {

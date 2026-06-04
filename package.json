@@ -10,7 +10,8 @@
   "scripts": {
     "dev:widget": "npm -w @commentbox/widget run dev",
     "build:widget": "npm -w @commentbox/widget run build",
-    "preview:widget": "npm -w @commentbox/widget run preview"
+    "preview:widget": "npm -w @commentbox/widget run preview",
+    "serve": "vite --port 4180 --strictPort"
   },
   "license": "UNLICENSED"
 }

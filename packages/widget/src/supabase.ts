@@ -1,22 +1,25 @@
-import type { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_KEY } from "./config";
 import type { Comment, CommentRow } from "./types";
 
-// Lazy-init: the Supabase client is only created the first time the widget needs
-// the backend (a dynamic import keeps it out of the synchronous boot path).
-let clientPromise: Promise<SupabaseClient | null> | null = null;
+// Lazy-init: supabase-js is bundled into widget.js, but the client itself is only
+// constructed the first time the widget actually needs the backend (deferred
+// createClient). `undefined` = not yet attempted; `null` = no usable config.
+let client: SupabaseClient | null | undefined;
 
-export async function getClient(): Promise<SupabaseClient | null> {
-  if (!SUPABASE_URL || !SUPABASE_KEY) return null;
-  if (!clientPromise) {
-    clientPromise = import("@supabase/supabase-js")
-      .then(({ createClient }) => createClient(SUPABASE_URL, SUPABASE_KEY))
-      .catch((e) => {
-        console.error("[commentbox] Supabase init failed", e);
-        return null;
-      });
+export function getClient(): SupabaseClient | null {
+  if (client !== undefined) return client;
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    client = null;
+    return client;
   }
-  return clientPromise;
+  try {
+    client = createClient(SUPABASE_URL, SUPABASE_KEY);
+  } catch (e) {
+    console.error("[commentbox] Supabase init failed", e);
+    client = null;
+  }
+  return client;
 }
 
 export interface NewComment {
@@ -55,7 +58,7 @@ export class CommentStore {
   }
 
   async fetch(): Promise<void> {
-    const supabase = await getClient();
+    const supabase = getClient();
     if (!supabase) return;
     const res = await supabase.from("comments").select("*").eq("page", this.pageKey);
     if (res.error) {
@@ -66,7 +69,7 @@ export class CommentStore {
   }
 
   async subscribe(): Promise<void> {
-    const supabase = await getClient();
+    const supabase = getClient();
     if (!supabase) return;
     await this.fetch();
     this.channel = supabase
@@ -82,7 +85,7 @@ export class CommentStore {
   }
 
   async add(comment: NewComment): Promise<void> {
-    const supabase = await getClient();
+    const supabase = getClient();
     if (!supabase) {
       alert("Comments are unavailable: the backend is not configured yet.");
       throw new Error("supabase not configured");
