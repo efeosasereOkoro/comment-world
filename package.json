@@ -1,0 +1,16 @@
+{
+  "name": "commentbox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Embeddable, multi-tenant comment/annotation widget installable with one script tag.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:widget": "npm -w @commentbox/widget run dev",
+    "build:widget": "npm -w @commentbox/widget run build",
+    "preview:widget": "npm -w @commentbox/widget run preview"
+  },
+  "license": "UNLICENSED"
+}

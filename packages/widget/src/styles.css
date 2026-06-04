@@ -1,0 +1,339 @@
+/* commentbox widget styling.
+   All host-design-system variables from the original have been replaced with
+   self-contained --cw-* tokens so the widget never depends on host CSS.
+   Phase 1 defines the tokens on :root (light DOM); Phase 2 relocates them onto the
+   shadow root's :host and moves all UI rules inside the shadow tree. */
+
+:root {
+  --cw-primary: #00267f;
+  --cw-primary-weak: #e5e9f2;
+  --cw-surface: #ffffff;
+  --cw-accent: #0e5f64;
+  --cw-accent-weak: #eaf9f9;
+  --cw-highlight: #ffe9a8;
+  --cw-highlight-ring: #ffc726;
+  --cw-border: #e0e4e9;
+  --cw-input-border: #595959;
+  --cw-text: #1a1a1a;
+  --cw-text-muted: #595959;
+  --cw-danger: #a42c2c;
+  --cw-radius: 0.25rem;
+  --cw-font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --cw-fs: 1rem;
+  --cw-fs-sm: 0.8125rem;
+  --cw-fw-bold: 700;
+  --cw-space: 1rem;
+  --cw-space-xs: 0.5rem;
+}
+
+.cmt-toolbar {
+  position: fixed;
+  right: var(--cw-space);
+  bottom: var(--cw-space);
+  z-index: 9000;
+  display: flex;
+  gap: var(--cw-space-xs);
+  font-family: var(--cw-font);
+}
+
+.cmt-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.55rem 0.9rem;
+  border: 2px solid var(--cw-primary);
+  border-radius: var(--cw-radius);
+  background: var(--cw-surface);
+  color: var(--cw-primary);
+  font-size: var(--cw-fs);
+  font-weight: var(--cw-fw-bold);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+.cmt-btn:hover {
+  background: var(--cw-primary-weak);
+}
+
+.cmt-btn[aria-pressed="true"] {
+  background: var(--cw-primary);
+  color: var(--cw-surface);
+}
+
+.cmt-btn__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.4rem;
+  height: 1.4rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--cw-primary);
+  color: var(--cw-surface);
+  font-size: var(--cw-fs-sm);
+}
+
+.cmt-btn[aria-pressed="true"] .cmt-btn__count {
+  background: var(--cw-surface);
+  color: var(--cw-primary);
+}
+
+/* Comment-mode affordances (these target host elements, hence the !important). */
+body.cmt-mode {
+  cursor: crosshair;
+}
+
+.cmt-hover-outline {
+  outline: 2px dashed var(--cw-accent) !important;
+  outline-offset: 2px;
+}
+
+.cmt-target-highlight {
+  background: var(--cw-highlight) !important;
+  box-shadow: 0 0 0 3px var(--cw-highlight-ring);
+  transition: background 0.2s ease;
+}
+
+/* Pins overlay (light DOM in every phase; self-scoped). */
+.cmt-pins {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8500;
+}
+
+.cmt-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  width: 1.8rem;
+  height: 1.8rem;
+  border: 2px solid var(--cw-surface);
+  border-radius: 50% 50% 50% 0;
+  background: var(--cw-primary);
+  color: var(--cw-surface);
+  font-family: var(--cw-font);
+  font-size: var(--cw-fs-sm);
+  font-weight: var(--cw-fw-bold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+/* Popover (composer + thread) */
+.cmt-popover {
+  position: absolute;
+  z-index: 9500;
+  width: min(22rem, calc(100vw - 2rem));
+  background: var(--cw-surface);
+  border: 1px solid var(--cw-border);
+  border-radius: var(--cw-radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  font-family: var(--cw-font);
+  font-size: var(--cw-fs);
+  line-height: 1.5;
+  color: var(--cw-text);
+  overflow: hidden;
+}
+
+.cmt-popover__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0.8rem;
+  background: var(--cw-primary-weak);
+  font-weight: var(--cw-fw-bold);
+}
+
+.cmt-popover__body {
+  padding: 0.8rem;
+  max-height: 22rem;
+  overflow-y: auto;
+}
+
+.cmt-quote {
+  border-left: 3px solid var(--cw-accent);
+  padding: 0.25rem 0.6rem;
+  margin-bottom: 0.6rem;
+  background: var(--cw-accent-weak);
+  font-style: italic;
+  color: var(--cw-text-muted);
+  font-size: var(--cw-fs-sm);
+}
+
+.cmt-field {
+  display: block;
+  margin-bottom: 0.6rem;
+}
+
+.cmt-field label {
+  display: block;
+  font-weight: var(--cw-fw-bold);
+  margin-bottom: 0.2rem;
+  font-size: var(--cw-fs-sm);
+}
+
+.cmt-field input,
+.cmt-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.45rem 0.55rem;
+  border: 2px solid var(--cw-input-border);
+  border-radius: var(--cw-radius);
+  font-family: inherit;
+  font-size: var(--cw-fs);
+}
+
+.cmt-field textarea {
+  min-height: 4.5rem;
+  resize: vertical;
+}
+
+.cmt-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+
+.cmt-action {
+  padding: 0.45rem 0.8rem;
+  border-radius: var(--cw-radius);
+  font-family: inherit;
+  font-size: var(--cw-fs);
+  font-weight: var(--cw-fw-bold);
+  cursor: pointer;
+  border: 2px solid var(--cw-primary);
+}
+
+.cmt-action--primary {
+  background: var(--cw-primary);
+  color: var(--cw-surface);
+}
+
+.cmt-action--secondary {
+  background: var(--cw-surface);
+  color: var(--cw-primary);
+}
+
+.cmt-action--danger {
+  border-color: var(--cw-danger);
+  background: var(--cw-surface);
+  color: var(--cw-danger);
+  font-size: var(--cw-fs-sm);
+  padding: 0.25rem 0.5rem;
+}
+
+.cmt-close {
+  border: none;
+  background: transparent;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--cw-text);
+}
+
+/* Thread items */
+.cmt-item {
+  padding: 0.55rem 0;
+  border-top: 1px solid var(--cw-border);
+}
+
+.cmt-item:first-child {
+  border-top: none;
+}
+
+.cmt-item__meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.2rem;
+}
+
+.cmt-item__author {
+  font-weight: var(--cw-fw-bold);
+}
+
+.cmt-item__time {
+  color: var(--cw-text-muted);
+  font-size: var(--cw-fs-sm);
+}
+
+.cmt-item__text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.cmt-empty {
+  color: var(--cw-text-muted);
+  font-style: italic;
+}
+
+.cmt-hint {
+  position: fixed;
+  left: 50%;
+  bottom: var(--cw-space);
+  transform: translateX(-50%);
+  z-index: 9000;
+  padding: 0.5rem 0.9rem;
+  border-radius: var(--cw-radius);
+  background: var(--cw-primary);
+  color: var(--cw-surface);
+  font-family: var(--cw-font);
+  font-size: var(--cw-fs-sm);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+/* Side panel listing all comments on the page */
+.cmt-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: min(24rem, 100vw);
+  background: var(--cw-surface);
+  border-left: 1px solid var(--cw-border);
+  box-shadow: -4px 0 18px rgba(0, 0, 0, 0.18);
+  z-index: 9400;
+  display: flex;
+  flex-direction: column;
+  font-family: var(--cw-font);
+  transform: translateX(100%);
+  transition: transform 0.2s ease;
+}
+
+.cmt-panel.is-open {
+  transform: translateX(0);
+}
+
+.cmt-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--cw-space-xs) var(--cw-space);
+  background: var(--cw-primary);
+  color: var(--cw-surface);
+  font-weight: var(--cw-fw-bold);
+}
+
+.cmt-panel__head .cmt-close {
+  color: var(--cw-surface);
+}
+
+.cmt-panel__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--cw-space-xs) var(--cw-space);
+}
+
+.cmt-panel__group {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--cw-border);
+  cursor: pointer;
+}
+
+.cmt-panel__group:hover {
+  background: var(--cw-primary-weak);
+}

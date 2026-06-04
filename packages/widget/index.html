@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>commentbox — dev harness</title>
+    <!-- The host configures the widget with a siteId before the bundle loads. -->
+    <script>
+      window.CommentWidget = { siteId: "dev-harness" };
+    </script>
+    <style>
+      body { font-family: Georgia, serif; max-width: 50rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; color: #222; }
+      h1 { color: #00267f; }
+      .card { border: 1px solid #ccc; border-radius: 8px; padding: 1rem 1.25rem; margin: 1.5rem 0; background: #fafafa; }
+      button.demo { padding: .5rem 1rem; font-size: 1rem; }
+    </style>
+  </head>
+  <body>
+    <h1>commentbox dev harness</h1>
+    <p>
+      This page exists to exercise the widget during development. Click
+      <strong>“Add comment”</strong> in the bottom-right toolbar, then select some text
+      or click any element below to attach a comment.
+    </p>
+
+    <div class="card">
+      <h2 id="section-one">A section with an id</h2>
+      <p>
+        Paragraph text you can select and annotate. The widget should generate a CSS-path
+        anchor for whatever element you target, drop a numbered pin, and list it in the
+        side panel.
+      </p>
+    </div>
+
+    <div class="card">
+      <h2>Repeated elements</h2>
+      <ul>
+        <li>First list item</li>
+        <li>Second list item</li>
+        <li>Third list item</li>
+      </ul>
+      <button class="demo" type="button">A host button (different styling)</button>
+    </div>
+
+    <p>
+      Note: until the Supabase backend is configured (Phase 3) saving a comment will show
+      an "unavailable" message — Phase 1 only validates the refactored UI and data wiring.
+    </p>
+
+    <!-- Loads the widget exactly as a host site would (here via the Vite dev server). -->
+    <script type="module" src="/src/index.ts"></script>
+  </body>
+</html>
