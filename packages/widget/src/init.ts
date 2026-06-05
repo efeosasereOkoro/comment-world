@@ -329,13 +329,22 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
       saveBtn.disabled = true;
       saveBtn.textContent = "Saving…";
       try {
-        await store.add({ selector, quote, name, text });
+        const { status } = await store.add({ selector, quote, name, text });
         closePopover();
+        if (status === "pending") {
+          showHint("Thanks! Your comment was submitted and is awaiting review.");
+          window.setTimeout(hideHint, 5000);
+        }
       } catch (err) {
         console.error("[commentbox] save failed", err);
         saveBtn.disabled = false;
         saveBtn.textContent = "Save";
-        alert("Could not save your comment. Please try again.");
+        const code = (err as { code?: string }).code;
+        if (code === "rate_limited") {
+          alert("You're commenting a bit too quickly. Please wait a moment and try again.");
+        } else {
+          alert("Could not save your comment. Please try again.");
+        }
       }
     });
   }

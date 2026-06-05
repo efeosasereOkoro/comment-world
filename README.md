@@ -24,8 +24,8 @@ site — like a feedback layer (Hypothesis / Marker.io style), installed like ta
 2. **Isolation + bundle** — Shadow DOM for all UI, single minified `widget.js`, inlined CSS, lazy supabase. ✅
 3. **Multi-tenancy** — `sites`/`profiles` tables, `site_id` on comments, two-audience RLS, origin-checked write path. ✅
 4. **Dashboard** — owner auth, create-site, embed snippet, moderation; platform super-admin oversight. ✅
-5. **Hardening** — anonymous auth, rate limiting, Turnstile CAPTCHA, optional moderation mode. ← *current*
-6. **Anchor robustness** — multi-anchor storage + graceful orphaning so no comment is lost.
+5. **Hardening** — server-side rate limiting, optional per-site moderation, and an (env-gated) Turnstile CAPTCHA path. ✅
+6. **Anchor robustness** — multi-anchor storage + graceful orphaning so no comment is lost. ← *current*
 
 ## Develop the widget
 
@@ -48,6 +48,7 @@ the SQL by hand; with the CLI, link the project and push.
 - `supabase/migrations/0001_schema.sql` — `profiles`, `sites`, `platform_admins`, `comments`
 - `supabase/migrations/0002_rls.sql` — Row Level Security policies
 - `supabase/migrations/0003_realtime_and_triggers.sql` — realtime + new-user trigger
+- `supabase/migrations/0004_hardening.sql` — moderation flag, comment `status`, rate-limit `ip_hash`, split read policy *(Phase 5)*
 
 **2. Deploy the write path** (origin-checked Edge Function):
 
@@ -99,3 +100,45 @@ npm -w @commentbox/dashboard run dev                       # http://localhost:30
 
 Auth, data access, and the admin gate are all enforced by the same RLS policies from
 Phase 3 — the dashboard uses only the public publishable key, never the service role.
+
+## Hardening (Phase 5)
+
+Abuse controls live in the `post-comment` Edge Function and the database, where they
+can't be bypassed by a tampered client:
+
+- **Rate limiting** — each request is keyed by `(site_id, hashed-IP)` over a sliding
+  window. The IP is salted-SHA-256'd (`ip_hash`, never exposed to the read path) purely
+  to count recent posts; over the limit returns `429 rate_limited`. Tunable via the
+  function's env (no redeploy needed):
+
+  | Env var | Default | Meaning |
+  | --- | --- | --- |
+  | `RATE_LIMIT_MAX` | `5` | Max comments per window per IP per site (`0` disables). |
+  | `RATE_LIMIT_WINDOW_SEC` | `60` | Window length in seconds. |
+  | `RATE_LIMIT_SALT` | _(built-in)_ | Secret salt for the IP hash — set your own. |
+
+- **Optional moderation** — flip `moderation_enabled` on a site (dashboard → site →
+  Moderation). New comments then insert as `status = 'pending'` and are hidden from the
+  public widget by RLS (public read sees only `approved`; owners/admins see all). The
+  owner approves or rejects from the site's comment list; the widget shows the poster a
+  "submitted for review" notice.
+
+- **Turnstile CAPTCHA (optional, off by default)** — set `TURNSTILE_SECRET` in the
+  function's env to require a Cloudflare Turnstile token on every post (verified
+  server-side; failure returns `403 captcha_failed`). With no secret set the check is
+  skipped entirely, so nothing breaks until you provision keys. The widget already
+  forwards a `turnstileToken` field when present.
+
+  Set function env/secrets with the CLI, e.g.:
+
+  ```bash
+  supabase secrets set RATE_LIMIT_MAX=10 RATE_LIMIT_SALT=$(openssl rand -hex 16)
+  supabase secrets set TURNSTILE_SECRET=1x0000000000000000000000000000000AA   # to enable CAPTCHA
+  ```
+
+> **Note on anonymous auth.** The original plan listed Supabase anonymous auth. Because
+> writes already go through the service-role Edge Function and reads are public
+> annotations, a per-visitor anonymous JWT added churn without a clear security gain
+> here — IP-based rate limiting covers the abuse case. It's intentionally deferred; the
+> hook to add it (token in `add()`) is in place if a future feature needs per-visitor
+> identity.

@@ -13,9 +13,10 @@ export default async function AdminPage() {
   if (!(await isPlatformAdmin(user.id))) redirect("/dashboard");
 
   const supabase = createClient();
-  // As a platform admin, RLS lets us read all profiles and sites; comments are
-  // publicly readable. This view is strictly read-only oversight — no moderation
-  // controls, preserving the per-owner moderation boundary.
+  // As a platform admin, RLS lets us read all profiles, sites, and comments
+  // (including pending ones, via the owner-or-admin select policy). This view is
+  // strictly read-only oversight — no moderation controls, preserving the per-owner
+  // moderation boundary.
   const [{ data: profiles }, { data: sites }, { data: comments }] = await Promise.all([
     supabase.from("profiles").select("*").order("created_at", { ascending: true }),
     supabase.from("sites").select("*"),

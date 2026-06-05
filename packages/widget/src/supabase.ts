@@ -29,6 +29,19 @@ export interface NewComment {
   text: string;
 }
 
+/** Outcome of a successful post. `pending` means the site moderates and the comment
+ *  is held for owner approval (so it won't appear in the public feed yet). */
+export interface AddResult {
+  status: "approved" | "pending";
+}
+
+/** Error thrown by {@link CommentStore.add} on a non-2xx response. `code` mirrors the
+ *  Edge Function's error string (e.g. "rate_limited", "origin_not_allowed"). */
+export interface PostError extends Error {
+  code?: string;
+  httpStatus?: number;
+}
+
 /**
  * Owns the live feed of comments for a single site + page. Encapsulates fetch +
  * realtime subscription + insert so {@link init} carries no module-level state.
@@ -62,9 +75,11 @@ export class CommentStore {
   async fetch(): Promise<void> {
     const supabase = getClient();
     if (!supabase) return;
+    // Explicit columns: never pull the internal ip_hash. RLS already limits anon
+    // reads to approved rows, so no status filter is needed here.
     const res = await supabase
       .from("comments")
-      .select("*")
+      .select("id, site_id, page, selector, quote, author, content, created_at")
       .eq("site_id", this.siteId)
       .eq("page", this.pageKey);
     if (res.error) {
@@ -92,7 +107,7 @@ export class CommentStore {
       .subscribe();
   }
 
-  async add(comment: NewComment): Promise<void> {
+  async add(comment: NewComment & { turnstileToken?: string }): Promise<AddResult> {
     if (!FUNCTIONS_URL || !SUPABASE_KEY) {
       alert("Comments are unavailable: the backend is not configured yet.");
       throw new Error("supabase not configured");
@@ -112,6 +127,7 @@ export class CommentStore {
         quote: comment.quote,
         name: comment.name,
         text: comment.text,
+        turnstileToken: comment.turnstileToken,
       }),
     });
     if (!res.ok) {
@@ -121,10 +137,24 @@ export class CommentStore {
       } catch {
         /* ignore non-JSON body */
       }
-      throw new Error("post-comment failed: " + res.status + (detail ? " " + detail : ""));
+      const err = new Error(
+        "post-comment failed: " + res.status + (detail ? " " + detail : "")
+      ) as PostError;
+      err.code = detail || undefined;
+      err.httpStatus = res.status;
+      throw err;
+    }
+    let result: AddResult = { status: "approved" };
+    try {
+      const out = (await res.json()) as { status?: string };
+      if (out.status === "pending") result = { status: "pending" };
+    } catch {
+      /* default to approved */
     }
     // Realtime will deliver the new row; refetch immediately as a fallback.
+    // (A pending comment stays hidden until an owner approves it — RLS enforces that.)
     await this.fetch();
+    return result;
   }
 
   dispose(): void {

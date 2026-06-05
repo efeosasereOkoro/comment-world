@@ -62,6 +62,33 @@ export async function deleteSite(formData: FormData) {
   redirect("/dashboard");
 }
 
+export async function setModeration(formData: FormData) {
+  const supabase = createClient();
+  const id = String(formData.get("site_id") || "");
+  // Checkbox sends "on" when checked, nothing when unchecked.
+  const enabled = String(formData.get("moderation_enabled") || "") === "on";
+  if (!id) return;
+  const { error } = await supabase
+    .from("sites")
+    .update({ moderation_enabled: enabled })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/dashboard/sites/${id}`);
+}
+
+export async function approveComment(formData: FormData) {
+  const supabase = createClient();
+  const commentId = String(formData.get("comment_id") || "");
+  const siteId = String(formData.get("site_id") || "");
+  if (!commentId) return;
+  const { error } = await supabase
+    .from("comments")
+    .update({ status: "approved" })
+    .eq("id", commentId);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/dashboard/sites/${siteId}`);
+}
+
 export async function deleteComment(formData: FormData) {
   const supabase = createClient();
   const commentId = String(formData.get("comment_id") || "");

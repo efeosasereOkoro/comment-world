@@ -5,7 +5,13 @@ import { WIDGET_SRC } from "@/lib/env";
 import type { Site, CommentRow } from "@/lib/types";
 import CopyBlock from "@/components/CopyBlock";
 import VerifyInstall from "@/components/VerifyInstall";
-import { updateOrigins, deleteSite, deleteComment } from "../../actions";
+import {
+  updateOrigins,
+  deleteSite,
+  deleteComment,
+  setModeration,
+  approveComment,
+} from "../../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -35,12 +41,13 @@ export default async function SitePage({ params }: { params: { id: string } }) {
 
   const { data: comments } = await supabase
     .from("comments")
-    .select("*")
+    .select("id, site_id, page, selector, quote, author, content, status, created_at")
     .eq("site_id", s.id)
     .order("created_at", { ascending: false });
   const rows = (comments ?? []) as CommentRow[];
   const groups = groupByPage(rows);
   const firstOrigin = s.allowed_origins.find((o) => o !== "*") ?? "";
+  const pendingCount = rows.filter((c) => c.status === "pending").length;
 
   return (
     <main className="container">
@@ -95,9 +102,34 @@ export default async function SitePage({ params }: { params: { id: string } }) {
       </div>
 
       <div className="card">
+        <h2>Moderation</h2>
+        <p className="muted small">
+          When enabled, new comments arrive as <strong>pending</strong> and stay hidden
+          from the widget until you approve them here.
+        </p>
+        <form action={setModeration} className="row-between">
+          <label className="small" style={{ display: "flex", gap: ".5rem", alignItems: "center" }}>
+            <input
+              type="checkbox"
+              name="moderation_enabled"
+              defaultChecked={s.moderation_enabled}
+            />
+            Require approval before comments are shown
+          </label>
+          <input type="hidden" name="site_id" value={s.id} />
+          <button className="btn btn--sm" type="submit">
+            Save
+          </button>
+        </form>
+      </div>
+
+      <div className="card">
         <div className="card__head">
           <h2 style={{ margin: 0 }}>Comments</h2>
-          <span className="pill">{rows.length} total</span>
+          <span className="pill">
+            {rows.length} total
+            {pendingCount > 0 ? ` · ${pendingCount} pending` : ""}
+          </span>
         </div>
 
         {rows.length === 0 ? (
@@ -120,7 +152,14 @@ export default async function SitePage({ params }: { params: { id: string } }) {
                 <tbody>
                   {groups[page].map((c) => (
                     <tr key={c.id}>
-                      <td>{c.author || "Anonymous"}</td>
+                      <td>
+                        {c.author || "Anonymous"}
+                        {c.status === "pending" && (
+                          <div>
+                            <span className="pill pill--warn">Pending</span>
+                          </div>
+                        )}
+                      </td>
                       <td>
                         {c.quote && (
                           <div className="muted small" style={{ fontStyle: "italic" }}>
@@ -133,13 +172,24 @@ export default async function SitePage({ params }: { params: { id: string } }) {
                         {new Date(c.created_at).toLocaleString()}
                       </td>
                       <td>
-                        <form action={deleteComment}>
-                          <input type="hidden" name="comment_id" value={c.id} />
-                          <input type="hidden" name="site_id" value={s.id} />
-                          <button className="btn btn--danger btn--sm" type="submit">
-                            Delete
-                          </button>
-                        </form>
+                        <div style={{ display: "flex", gap: ".4rem", justifyContent: "flex-end" }}>
+                          {c.status === "pending" && (
+                            <form action={approveComment}>
+                              <input type="hidden" name="comment_id" value={c.id} />
+                              <input type="hidden" name="site_id" value={s.id} />
+                              <button className="btn btn--sm" type="submit">
+                                Approve
+                              </button>
+                            </form>
+                          )}
+                          <form action={deleteComment}>
+                            <input type="hidden" name="comment_id" value={c.id} />
+                            <input type="hidden" name="site_id" value={s.id} />
+                            <button className="btn btn--danger btn--sm" type="submit">
+                              {c.status === "pending" ? "Reject" : "Delete"}
+                            </button>
+                          </form>
+                        </div>
                       </td>
                     </tr>
                   ))}

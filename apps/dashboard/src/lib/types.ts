@@ -3,6 +3,7 @@ export interface Site {
   owner_id: string;
   name: string;
   allowed_origins: string[];
+  moderation_enabled: boolean;
   created_at: string;
 }
 
@@ -21,5 +22,6 @@ export interface CommentRow {
   quote: string | null;
   author: string | null;
   content: string | null;
+  status: "approved" | "pending";
   created_at: string;
 }
