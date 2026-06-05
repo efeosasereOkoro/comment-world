@@ -10,6 +10,7 @@
   "scripts": {
     "dev:widget": "npm -w @commentbox/widget run dev",
     "build:widget": "npm -w @commentbox/widget run build",
+    "sync:widget": "npm run build:widget && node -e \"require('fs').mkdirSync('apps/dashboard/public',{recursive:true});require('fs').copyFileSync('packages/widget/dist/widget.js','apps/dashboard/public/widget.js')\"",
     "preview:widget": "npm -w @commentbox/widget run preview",
     "serve": "vite --port 4180 --strictPort"
   },
