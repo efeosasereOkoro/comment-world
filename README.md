@@ -25,7 +25,7 @@ site — like a feedback layer (Hypothesis / Marker.io style), installed like ta
 3. **Multi-tenancy** — `sites`/`profiles` tables, `site_id` on comments, two-audience RLS, origin-checked write path. ✅
 4. **Dashboard** — owner auth, create-site, embed snippet, moderation; platform super-admin oversight. ✅
 5. **Hardening** — server-side rate limiting, optional per-site moderation, and an (env-gated) Turnstile CAPTCHA path. ✅
-6. **Anchor robustness** — multi-anchor storage + graceful orphaning so no comment is lost. ← *current*
+6. **Anchor robustness** — two-anchor resolution (CSS path + text quote) with graceful orphaning so no comment is lost. ✅
 
 ## Develop the widget
 
@@ -142,3 +142,26 @@ can't be bypassed by a tampered client:
 > here — IP-based rate limiting covers the abuse case. It's intentionally deferred; the
 > hook to add it (token in `add()`) is in place if a future feature needs per-visitor
 > identity.
+
+## Anchor robustness (Phase 6)
+
+Host pages change — a redesign, an A/B test, or a CMS edit can move or rename the
+element a comment was attached to. Every comment already stores **two anchors**: the
+CSS-path `selector` and the highlighted `quote` text. `resolveAnchor` (in
+`packages/widget/src/selector.ts`) now tries them in order of precision so a comment
+re-attaches itself instead of disappearing:
+
+1. **Exact selector** — `document.querySelector(selector)`. Trusted only if the matched
+   element still contains the quote; a bare selector match can silently land on the
+   *wrong* element after sibling insertion shifts an `nth-of-type` index, so the quote
+   acts as a tie-breaker.
+2. **Quote within the nearest surviving ancestor** — the selector's `" > "` chain is
+   walked from the full path down to its first segment; the longest still-present prefix
+   scopes a text search for the deepest element containing the quote.
+3. **Quote anywhere** — the same text search across `<body>` as a last resort.
+
+If none match (the quoted text is gone from the page), the comment is **orphaned, not
+lost**: no pin is drawn, but it still appears in the side panel under a "Not on this
+page" section with its full text, so reviewers never lose a comment to DOM drift. The
+text search skips the widget's own UI (shadow host + pins layer) so it can't match
+itself.

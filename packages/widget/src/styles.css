@@ -299,3 +299,49 @@
 .cmt-panel__group:hover {
   background: var(--cw-primary-weak);
 }
+
+/* "Not on this page" section: comments whose anchor broke. They are kept and shown
+   here in full (never dropped) but can't be scrolled to, so they don't hover/click. */
+.cmt-panel__section {
+  display: block;
+  margin: 1rem 0 0.25rem;
+  padding-top: 0.6rem;
+  border-top: 2px solid var(--cw-border);
+}
+
+.cmt-panel__section-title {
+  display: block;
+  font-weight: var(--cw-fw-bold);
+  font-size: var(--cw-fs-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--cw-text-muted);
+}
+
+.cmt-panel__section-note {
+  display: block;
+  font-size: var(--cw-fs-sm);
+  color: var(--cw-text-muted);
+}
+
+.cmt-panel__group--orphan {
+  cursor: default;
+  opacity: 0.85;
+}
+
+.cmt-panel__group--orphan:hover {
+  background: transparent;
+}
+
+.cmt-orphan-tag {
+  display: inline-block;
+  margin-bottom: 0.3rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: var(--cw-accent-weak);
+  color: var(--cw-accent);
+  font-size: 0.6875rem;
+  font-weight: var(--cw-fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}

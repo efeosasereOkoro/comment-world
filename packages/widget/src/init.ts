@@ -11,7 +11,7 @@
 import type { Comment, WidgetConfig } from "./types";
 import { NAME_KEY } from "./config";
 import { computePageKey } from "./page-key";
-import { getSelector, resolveTarget, elementFromSelection } from "./selector";
+import { getSelector, resolveAnchor, elementFromSelection } from "./selector";
 import { addHoverOutline, removeHoverOutline, addHighlight, removeHighlight } from "./host-decor";
 import { CommentStore } from "./supabase";
 
@@ -129,12 +129,19 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     return groups;
   }
 
+  // Resolve a comment group's anchor (CSS selector + quote fallback), never matching
+  // the widget's own UI. Returns null when the comment can no longer be placed on the
+  // page — the caller then surfaces it as "orphaned" rather than dropping it.
+  function resolveGroup(selector: string, quote?: string): Element | null {
+    return resolveAnchor(selector, quote, [uiHost, pins]);
+  }
+
   function renderPins(): void {
     pins.innerHTML = "";
     const groups = groupedBySelector();
     Object.keys(groups).forEach((selector) => {
-      const el = resolveTarget(selector);
-      if (!el) return;
+      const el = resolveGroup(selector, groups[selector][0].quote);
+      if (!el) return; // unresolved → shown as orphaned in the panel, never lost
       const rect = el.getBoundingClientRect();
       const pin = document.createElement("button");
       pin.type = "button";
@@ -258,8 +265,8 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     pop.style.top = top + "px";
   }
 
-  function highlightTarget(selector: string): Element | null {
-    const el = resolveTarget(selector);
+  function highlightTarget(selector: string, quote?: string): Element | null {
+    const el = resolveGroup(selector, quote);
     if (el) {
       addHighlight(el);
       state.targetHighlight = el;
@@ -279,7 +286,7 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
 
   function openComposer(selector: string, quote: string, x?: number, y?: number): void {
     closePopover();
-    const el = highlightTarget(selector);
+    const el = highlightTarget(selector, quote);
     if (el && !x) {
       const r = el.getBoundingClientRect();
       x = r.left + window.scrollX;
@@ -353,7 +360,8 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
 
   function openThread(selector: string, anchorEl: HTMLElement): void {
     closePopover();
-    highlightTarget(selector);
+    const groupQuote = state.comments.find((c) => c.selector === selector)?.quote;
+    highlightTarget(selector, groupQuote);
     const rect = anchorEl.getBoundingClientRect();
     const pop = document.createElement("div");
     pop.className = "cmt-popover";
@@ -400,7 +408,7 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     addAnother.style.marginTop = ".6rem";
     addAnother.textContent = "Add another comment";
     addAnother.addEventListener("click", () => {
-      const el = resolveTarget(selector);
+      const el = resolveGroup(selector, quote || "");
       let x: number | undefined;
       let y: number | undefined;
       if (el) {
@@ -432,41 +440,35 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     if (panel.classList.contains("is-open")) renderPanel();
   });
 
-  function renderPanel(): void {
-    const body = panel.querySelector(".cmt-panel__body") as HTMLElement;
-    body.innerHTML = "";
-    if (!state.comments.length) {
-      body.innerHTML =
-        '<p class="cmt-empty">No comments yet. Click “Add comment”, then select text or a component.</p>';
-      return;
-    }
-    const groups = groupedBySelector();
-    Object.keys(groups).forEach((selector) => {
-      const items = groups[selector];
-      const quote = items[0].quote;
-      const group = document.createElement("div");
-      group.className = "cmt-panel__group";
-      const target = resolveTarget(selector);
-      const preview = quote || (target ? (target.textContent || "").trim().slice(0, 60) : selector);
-      group.innerHTML =
-        '<div class="cmt-quote" style="margin-bottom:.4rem">' +
-        esc(preview) +
-        "</div>" +
-        items
-          .map(
-            (c) =>
-              '<div class="cmt-item__meta"><span class="cmt-item__author">' +
-              esc(c.name) +
-              '</span><span class="cmt-item__time">' +
-              esc(formatTime(c.createdAt)) +
-              "</span></div>" +
-              '<div class="cmt-item__text">' +
-              esc(c.text) +
-              "</div>"
-          )
-          .join('<hr style="border:none;border-top:1px solid #eee;margin:.4rem 0">');
+  function buildPanelGroup(selector: string, items: Comment[], located: Element | null): HTMLElement {
+    const quote = items[0].quote;
+    const group = document.createElement("div");
+    group.className = "cmt-panel__group" + (located ? "" : " cmt-panel__group--orphan");
+    const preview =
+      quote || (located ? (located.textContent || "").trim().slice(0, 60) : "(no preview)");
+    group.innerHTML =
+      (located ? "" : '<div class="cmt-orphan-tag">Couldn’t locate on this page</div>') +
+      '<div class="cmt-quote" style="margin-bottom:.4rem">' +
+      esc(preview) +
+      "</div>" +
+      items
+        .map(
+          (c) =>
+            '<div class="cmt-item__meta"><span class="cmt-item__author">' +
+            esc(c.name) +
+            '</span><span class="cmt-item__time">' +
+            esc(formatTime(c.createdAt)) +
+            "</span></div>" +
+            '<div class="cmt-item__text">' +
+            esc(c.text) +
+            "</div>"
+        )
+        .join('<hr style="border:none;border-top:1px solid #eee;margin:.4rem 0">');
+    // Only located groups scroll-to-element on click; orphaned ones are display-only
+    // (their full text is shown inline above, so the comment is never lost).
+    if (located) {
       group.addEventListener("click", () => {
-        const el = resolveTarget(selector);
+        const el = resolveGroup(selector, quote);
         if (el) {
           el.scrollIntoView({ behavior: "smooth", block: "center" });
           addHighlight(el);
@@ -479,8 +481,45 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
           }, 1600);
         }
       });
-      body.appendChild(group);
+    }
+    return group;
+  }
+
+  function renderPanel(): void {
+    const body = panel.querySelector(".cmt-panel__body") as HTMLElement;
+    body.innerHTML = "";
+    if (!state.comments.length) {
+      body.innerHTML =
+        '<p class="cmt-empty">No comments yet. Click “Add comment”, then select text or a component.</p>';
+      return;
+    }
+    const groups = groupedBySelector();
+    const located: string[] = [];
+    const orphaned: string[] = [];
+    const resolved: Record<string, Element | null> = {};
+    Object.keys(groups).forEach((selector) => {
+      const el = resolveGroup(selector, groups[selector][0].quote);
+      resolved[selector] = el;
+      (el ? located : orphaned).push(selector);
     });
+
+    located.forEach((selector) =>
+      body.appendChild(buildPanelGroup(selector, groups[selector], resolved[selector]))
+    );
+
+    if (orphaned.length) {
+      const header = document.createElement("div");
+      header.className = "cmt-panel__section";
+      header.innerHTML =
+        '<span class="cmt-panel__section-title">Not on this page</span>' +
+        '<span class="cmt-panel__section-note">The page changed, so ' +
+        (orphaned.length === 1 ? "this comment" : "these comments") +
+        " couldn’t be placed. Nothing was lost.</span>";
+      body.appendChild(header);
+      orphaned.forEach((selector) =>
+        body.appendChild(buildPanelGroup(selector, groups[selector], null))
+      );
+    }
   }
 
   // ---- hint banner ----------------------------------------------------
