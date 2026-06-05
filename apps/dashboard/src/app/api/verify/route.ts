@@ -28,23 +28,55 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_url" }, { status: 400 });
   }
 
+  // Try the URL as given, then forgiving variants. A common mistake is a trailing
+  // slash after a filename (e.g. ".../index.html/"), which static hosts like GitHub
+  // Pages treat as a missing directory and 404. Build de-duplicated candidates that
+  // toggle that trailing slash so the check succeeds on the page the user means.
+  const candidates: string[] = [];
+  const pushCandidate = (u: URL) => {
+    const s = u.toString();
+    if (!candidates.includes(s)) candidates.push(s);
+  };
+  pushCandidate(target);
+  if (/\.[a-z0-9]+\/$/i.test(target.pathname)) {
+    const noSlash = new URL(target.toString());
+    noSlash.pathname = noSlash.pathname.replace(/\/+$/, "");
+    pushCandidate(noSlash);
+  } else if (!target.pathname.endsWith("/")) {
+    const withSlash = new URL(target.toString());
+    withSlash.pathname = withSlash.pathname + "/";
+    pushCandidate(withSlash);
+  }
+
   let html = "";
-  try {
-    const res = await fetch(target.toString(), {
-      headers: { "User-Agent": "commentbox-verifier/1.0" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) {
-      return NextResponse.json(
-        { ok: false, reason: `Page returned HTTP ${res.status}.` },
-        { status: 200 }
-      );
+  let lastStatus = 0;
+  let fetched = false;
+  for (const candidate of candidates) {
+    try {
+      const res = await fetch(candidate, {
+        headers: { "User-Agent": "commentbox-verifier/1.0" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(10000),
+      });
+      if (res.ok) {
+        html = await res.text();
+        fetched = true;
+        break;
+      }
+      lastStatus = res.status;
+    } catch {
+      lastStatus = 0;
     }
-    html = await res.text();
-  } catch {
+  }
+
+  if (!fetched) {
     return NextResponse.json(
-      { ok: false, reason: "Could not fetch that URL (timeout or network error)." },
+      {
+        ok: false,
+        reason: lastStatus
+          ? `Page returned HTTP ${lastStatus}.`
+          : "Could not fetch that URL (timeout or network error).",
+      },
       { status: 200 }
     );
   }
