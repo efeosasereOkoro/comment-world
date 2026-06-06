@@ -3,6 +3,8 @@ import https from "node:https";
 import { getUser } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { SUPABASE_URL, SUPABASE_KEY } from "@/lib/env";
+import { INSTALL_CHECK_PAGE } from "@/lib/constants";
+import { interpretWriteResult, type PostResult } from "@/lib/verify-result";
 
 /**
  * Server-side installation check. Two parts:
@@ -17,10 +19,20 @@ import { SUPABASE_URL, SUPABASE_KEY } from "@/lib/env";
  *  set the Origin header to the verified page (browsers forbid that; Node doesn't).
  */
 
-const CHECK_PAGE = "__commentbox_install_check__";
+const CHECK_PAGE = INSTALL_CHECK_PAGE;
 const FUNCTIONS_URL = SUPABASE_URL ? SUPABASE_URL.replace(/\/+$/, "") + "/functions/v1" : "";
 
-type PostResult = { status: number; body: { error?: string; status?: string } | null };
+/** Best-effort delete of every test comment on the hidden install-check page for a
+ *  site, using the owner's RLS session. Called both before the live test (sweeping
+ *  residue from any earlier run whose cleanup failed) and after it. */
+async function sweepCheckComments(siteId: string): Promise<void> {
+  try {
+    const supabase = createClient();
+    await supabase.from("comments").delete().eq("site_id", siteId).eq("page", CHECK_PAGE);
+  } catch {
+    /* best effort; the check page is filtered out of the dashboard anyway */
+  }
+}
 
 /** POST to the Edge Function with a chosen Origin header (node:https gives us full
  *  header control — fetch/undici strips a forbidden `Origin`). */
@@ -154,40 +166,18 @@ export async function POST(req: Request) {
 
   // Part 2: exercise the real write path from the page's origin.
   let writeOk = false;
-  let writeStatus:
-    | "ok"
-    | "pending"
-    | "origin_not_allowed"
-    | "rate_limited"
-    | "captcha_required"
-    | "unknown_site"
-    | "error" = "error";
+  let writeStatus: ReturnType<typeof interpretWriteResult>["writeStatus"] = "error";
 
   if (FUNCTIONS_URL) {
+    // Sweep any residue from an earlier run whose post-test cleanup failed, so a
+    // successful test never adds to a growing pile of leftover check comments.
+    await sweepCheckComments(siteId);
+
     const res = await postTestComment(origin, siteId);
-    if (res.status === 200) {
-      writeOk = true;
-      writeStatus = res.body?.status === "pending" ? "pending" : "ok";
-      // Clean up the throwaway test comment(s) on the hidden check page.
-      try {
-        const supabase = createClient();
-        await supabase.from("comments").delete().eq("site_id", siteId).eq("page", CHECK_PAGE);
-      } catch {
-        /* best effort; the check page never renders on the live site anyway */
-      }
-    } else if (res.status === 429) {
-      // Got past the origin check, so writes work — just throttled right now.
-      writeOk = true;
-      writeStatus = "rate_limited";
-    } else if (res.body?.error === "origin_not_allowed") {
-      writeStatus = "origin_not_allowed";
-    } else if (res.body?.error === "captcha_failed") {
-      writeStatus = "captcha_required";
-    } else if (res.body?.error === "unknown_site") {
-      writeStatus = "unknown_site";
-    } else {
-      writeStatus = "error";
-    }
+    ({ writeOk, writeStatus } = interpretWriteResult(res));
+
+    // If the write landed (200/pending), delete the throwaway comment immediately.
+    if (res.status === 200) await sweepCheckComments(siteId);
   }
 
   return NextResponse.json({

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { WIDGET_SRC } from "@/lib/env";
+import { INSTALL_CHECK_PAGE } from "@/lib/constants";
 import type { Site, CommentRow } from "@/lib/types";
 import CopyBlock from "@/components/CopyBlock";
 import VerifyInstall from "@/components/VerifyInstall";
@@ -43,6 +44,9 @@ export default async function SitePage({ params }: { params: { id: string } }) {
     .from("comments")
     .select("id, site_id, page, selector, quote, author, content, status, created_at")
     .eq("site_id", s.id)
+    // Hide the install verifier's throwaway test comments, in case a post-test
+    // cleanup ever failed and left residue on the hidden check page.
+    .neq("page", INSTALL_CHECK_PAGE)
     .order("created_at", { ascending: false });
   const rows = (comments ?? []) as CommentRow[];
   const groups = groupByPage(rows);
