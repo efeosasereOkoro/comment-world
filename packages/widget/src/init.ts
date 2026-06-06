@@ -429,15 +429,39 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     (pop.querySelector(".cmt-close") as HTMLElement).addEventListener("click", closePopover);
   }
 
-  /** Build the meta + text markup shared by a comment and its replies. */
+  /** Up-to-two-letter initials for an avatar (first + last word, else first two chars). */
+  function initials(name: string): string {
+    const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return "?";
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+
+  /** Deterministic avatar color from the name, so the same person is always the same hue. */
+  function avatarColor(name: string): string {
+    let h = 0;
+    for (let i = 0; i < (name || "").length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
+    return "hsl(" + h + ", 52%, 42%)";
+  }
+
+  /** Shared comment renderer: avatar + (name / time) header + body text. Used for both
+   *  top-level comments and replies, in the thread popover and the side panel. */
   function commentInnerHtml(c: Comment): string {
+    const name = c.name || "Anonymous";
     return (
-      '<div class="cmt-item__meta"><span class="cmt-item__author">' +
-      esc(c.name) +
-      '</span><span class="cmt-item__time">' +
+      '<div class="cmt-c__head">' +
+      '<span class="cmt-c__avatar" style="background:' +
+      avatarColor(name) +
+      '">' +
+      esc(initials(name)) +
+      "</span>" +
+      '<span class="cmt-c__author">' +
+      esc(name) +
+      "</span>" +
+      '<span class="cmt-c__time">' +
       esc(formatTime(c.createdAt)) +
       "</span></div>" +
-      '<div class="cmt-item__text">' +
+      '<div class="cmt-c__text">' +
       esc(c.text) +
       "</div>"
     );
@@ -531,8 +555,12 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     const quote = items[0].quote;
     const group = document.createElement("div");
     group.className = "cmt-panel__group" + (located ? "" : " cmt-panel__group--orphan");
-    const preview =
-      quote || (located ? (located.textContent || "").trim().slice(0, 60) : "(no preview)");
+    let preview = quote || "";
+    if (!preview && located) {
+      const t = (located.textContent || "").trim();
+      preview = t.length > 60 ? t.slice(0, 60).trimEnd() + "…" : t;
+    }
+    if (!preview) preview = "(no preview)";
 
     if (!located) {
       const tag = document.createElement("div");

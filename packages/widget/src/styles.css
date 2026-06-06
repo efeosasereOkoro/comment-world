@@ -198,7 +198,7 @@
 
 /* Thread items */
 .cmt-item {
-  padding: 0.55rem 0;
+  padding: 0.7rem 0;
   border-top: 1px solid var(--cw-border);
 }
 
@@ -206,24 +206,46 @@
   border-top: none;
 }
 
-.cmt-item__meta {
+/* Shared comment layout: avatar + (name / time) header, then indented body. */
+.cmt-c__head {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+  align-items: center;
   gap: 0.5rem;
-  margin-bottom: 0.2rem;
+  margin-bottom: 0.3rem;
 }
 
-.cmt-item__author {
+.cmt-c__avatar {
+  flex: 0 0 auto;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 0.6875rem;
   font-weight: var(--cw-fw-bold);
+  letter-spacing: 0.02em;
 }
 
-.cmt-item__time {
+.cmt-c__author {
+  font-weight: var(--cw-fw-bold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmt-c__time {
+  margin-left: auto;
+  flex: 0 0 auto;
   color: var(--cw-text-muted);
   font-size: var(--cw-fs-sm);
+  white-space: nowrap;
 }
 
-.cmt-item__text {
+/* Body aligns under the name (past the avatar) for a clean vertical rhythm. */
+.cmt-c__text {
+  padding-left: 2.25rem;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -233,19 +255,30 @@
   font-style: italic;
 }
 
-/* Threaded replies — indented block under a top-level comment */
+/* Threaded replies — indented block with a connector, visually subordinate. */
 .cmt-reply {
-  margin-top: 0.45rem;
-  margin-left: 0.85rem;
-  padding-left: 0.6rem;
+  margin-top: 0.55rem;
+  margin-left: 1.1rem;
+  padding-left: 0.75rem;
   border-left: 2px solid var(--cw-border);
+}
+
+.cmt-reply .cmt-c__avatar {
+  width: 1.4rem;
+  height: 1.4rem;
+  font-size: 0.5625rem;
+}
+
+.cmt-reply .cmt-c__text {
+  padding-left: 1.9rem;
 }
 
 .cmt-reply-btn {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
-  margin-top: 0.45rem;
+  margin-top: 0.5rem;
+  margin-left: 2.25rem;
   padding: 0.25rem 0.65rem;
   border: 1px solid var(--cw-primary);
   border-radius: var(--cw-radius);
@@ -256,6 +289,11 @@
   font-weight: var(--cw-fw-bold);
   line-height: 1.2;
   cursor: pointer;
+}
+
+/* A reply's own reply button aligns under the reply's (smaller) avatar. */
+.cmt-reply .cmt-reply-btn {
+  margin-left: 1.9rem;
 }
 
 .cmt-reply-btn:hover {
