@@ -85,6 +85,8 @@ export default async function SitePage({ params }: { params: { id: string } }) {
         <h2>Allowed origins</h2>
         <p className="muted small">
           The write endpoint rejects comments whose origin isn&apos;t listed here. One per line.
+          Enter the site origin only — scheme + host, e.g. <code>https://example.com</code>, not a
+          full page URL. Entries are normalized automatically (any path is stripped on save).
           Use <code>*</code> to accept any origin (testing only).
         </p>
         <form action={updateOrigins} className="stack">
