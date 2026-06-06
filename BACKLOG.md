@@ -109,6 +109,12 @@ Comment **status** (open / in-progress / resolved), **assignee**, and **tags**. 
 a comment box from a feedback *tool* — owners need to act on feedback, not just read it.
 *Shipped:* `triage_status` / `assignee` / `tags` columns, owner `setTriage` action, and
 per-comment triage controls + status pills in the dashboard.
+**Follow-up — suggested / preset tags.** Tags are a free-text comma field today, so
+typos and near-duplicates ("bug" vs "Bug" vs "bugs") fragment the taxonomy. Direction:
+suggest from the site's existing distinct tags (autocomplete/typeahead) and/or let the
+owner define a preset tag set, surfaced as clickable chips. Same idea could apply to the
+assignee field (suggest from prior assignees / team members once seats exist). *Acceptance:*
+adding a tag offers existing tags as you type; tag set stays consistent across a site.
 
 ### C. Visual snapshot at comment time — ✅ Done (lightweight DOM context)
 Capture a screenshot / DOM snapshot when a comment is created, so feedback keeps its
