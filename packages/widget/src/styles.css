@@ -233,6 +233,30 @@
   font-style: italic;
 }
 
+/* Threaded replies — indented block under a top-level comment */
+.cmt-reply {
+  margin-top: 0.45rem;
+  margin-left: 0.85rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--cw-border);
+}
+
+.cmt-reply-btn {
+  margin-top: 0.35rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--cw-primary);
+  font-family: var(--cw-font);
+  font-size: var(--cw-fs-sm);
+  font-weight: var(--cw-fw-bold);
+  cursor: pointer;
+}
+
+.cmt-reply-btn:hover {
+  text-decoration: underline;
+}
+
 .cmt-hint {
   position: fixed;
   left: 50%;

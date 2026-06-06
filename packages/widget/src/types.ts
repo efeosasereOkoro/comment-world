@@ -11,6 +11,22 @@ export interface WidgetConfig {
   pageId?: string;
 }
 
+/** Capture-time context for a comment: what the anchored spot looked like when the
+ *  comment was made, so feedback survives a later redesign. */
+export interface CommentSnapshot {
+  url?: string | null;
+  title?: string | null;
+  tag?: string | null;
+  context?: string | null;
+  viewport?: { w: number | null; h: number | null };
+  rect?: {
+    top: number | null;
+    left: number | null;
+    width: number | null;
+    height: number | null;
+  };
+}
+
 /** A comment as used by the UI (normalized from a backend row). */
 export interface Comment {
   id: string;
@@ -22,6 +38,8 @@ export interface Comment {
   text: string;
   /** Epoch milliseconds. */
   createdAt: number;
+  /** Parent comment id when this is a reply; null for a top-level comment. */
+  parentId: string | null;
 }
 
 /** Raw row shape returned by the backend `comments` table. */
@@ -34,6 +52,7 @@ export interface CommentRow {
   author: string | null;
   content: string | null;
   created_at: string | null;
+  parent_id: string | null;
 }
 
 declare global {

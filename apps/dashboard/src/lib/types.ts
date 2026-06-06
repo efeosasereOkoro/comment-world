@@ -14,6 +14,23 @@ export interface Profile {
   created_at: string;
 }
 
+export type TriageStatus = "open" | "in_progress" | "resolved";
+
+/** Capture-time visual/page context recorded by the widget (sanitized server-side). */
+export interface CommentSnapshot {
+  url?: string | null;
+  title?: string | null;
+  tag?: string | null;
+  context?: string | null;
+  viewport?: { w: number | null; h: number | null } | null;
+  rect?: {
+    top: number | null;
+    left: number | null;
+    width: number | null;
+    height: number | null;
+  } | null;
+}
+
 export interface CommentRow {
   id: string;
   site_id: string;
@@ -24,4 +41,11 @@ export interface CommentRow {
   content: string | null;
   status: "approved" | "pending";
   created_at: string;
+  /** Threaded replies: parent comment id, or null for a top-level comment. */
+  parent_id: string | null;
+  /** Owner-facing triage workflow (orthogonal to public-visibility `status`). */
+  triage_status: TriageStatus;
+  assignee: string | null;
+  tags: string[];
+  snapshot: CommentSnapshot | null;
 }

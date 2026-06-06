@@ -241,6 +241,77 @@ textarea:focus {
   background: var(--warn-weak);
   color: var(--warn);
 }
+.pill--tag {
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+/* Triage status pills */
+.triage--open {
+  background: var(--warn-weak);
+  color: var(--warn);
+}
+.triage--in_progress {
+  background: var(--primary-weak);
+  color: var(--primary);
+}
+.triage--resolved {
+  background: var(--ok-weak);
+  color: var(--ok);
+}
+
+/* Comment cards (threaded list) */
+.comment {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 0.9rem;
+  background: var(--surface);
+}
+.comment--reply {
+  margin-top: 0.6rem;
+  margin-left: 1.25rem;
+  border-left: 3px solid var(--border-strong);
+  background: var(--surface-2);
+}
+
+/* Captured-context disclosure */
+.snapshot {
+  margin-top: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.snapshot summary {
+  cursor: pointer;
+}
+
+/* Triage editing controls */
+.triage-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.7rem;
+  padding-top: 0.7rem;
+  border-top: 1px solid var(--border);
+}
+.triage-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  color: var(--muted);
+}
+.triage-form select,
+.triage-form input {
+  padding: 0.3rem 0.45rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
 .notice {
   padding: 0.6rem 0.8rem;
   border-radius: 6px;

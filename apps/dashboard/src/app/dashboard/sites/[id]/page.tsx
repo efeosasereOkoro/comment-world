@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { WIDGET_SRC } from "@/lib/env";
 import { INSTALL_CHECK_PAGE } from "@/lib/constants";
-import type { Site, CommentRow } from "@/lib/types";
+import type { Site, CommentRow, CommentSnapshot } from "@/lib/types";
 import CopyBlock from "@/components/CopyBlock";
 import VerifyInstall from "@/components/VerifyInstall";
 import DeleteSiteButton from "@/components/DeleteSiteButton";
@@ -12,6 +12,7 @@ import {
   deleteComment,
   setModeration,
   approveComment,
+  setTriage,
 } from "../../actions";
 
 export const dynamic = "force-dynamic";
@@ -23,10 +24,76 @@ function snippet(siteId: string): string {
   );
 }
 
+/** Group TOP-LEVEL comments by page (replies are nested under their parent). */
 function groupByPage(rows: CommentRow[]): Record<string, CommentRow[]> {
   const groups: Record<string, CommentRow[]> = {};
-  for (const r of rows) (groups[r.page] = groups[r.page] || []).push(r);
+  for (const r of rows) {
+    if (r.parent_id) continue; // replies are rendered nested, not as page rows
+    (groups[r.page] = groups[r.page] || []).push(r);
+  }
   return groups;
+}
+
+/** Map of parent comment id → its replies (oldest first). */
+function repliesByParent(rows: CommentRow[]): Record<string, CommentRow[]> {
+  const map: Record<string, CommentRow[]> = {};
+  for (const r of rows) {
+    if (!r.parent_id) continue;
+    (map[r.parent_id] = map[r.parent_id] || []).push(r);
+  }
+  for (const k of Object.keys(map)) {
+    map[k].sort((a, b) => +new Date(a.created_at) - +new Date(b.created_at));
+  }
+  return map;
+}
+
+const TRIAGE_LABEL: Record<string, string> = {
+  open: "Open",
+  in_progress: "In progress",
+  resolved: "Resolved",
+};
+
+function SnapshotContext({ snapshot }: { snapshot: CommentSnapshot | null }) {
+  if (!snapshot) return null;
+  const { url, title, tag, context, viewport, rect } = snapshot;
+  if (!url && !title && !tag && !context) return null;
+  return (
+    <details className="snapshot">
+      <summary className="muted small">Captured context</summary>
+      <div className="small" style={{ marginTop: ".4rem", display: "grid", gap: ".25rem" }}>
+        {title && (
+          <div>
+            <strong>Page:</strong> {title}
+          </div>
+        )}
+        {url && (
+          <div style={{ wordBreak: "break-all" }}>
+            <strong>URL:</strong>{" "}
+            <a href={url} target="_blank" rel="noreferrer noopener">
+              {url}
+            </a>
+          </div>
+        )}
+        {tag && (
+          <div>
+            <strong>Element:</strong> <code>&lt;{tag}&gt;</code>
+          </div>
+        )}
+        {context && (
+          <div style={{ fontStyle: "italic" }}>“{context}”</div>
+        )}
+        {rect && (rect.width != null || rect.height != null) && (
+          <div className="muted">
+            Position: {rect.left ?? "?"},{rect.top ?? "?"} · size {rect.width ?? "?"}×
+            {rect.height ?? "?"}
+            {viewport && viewport.w != null
+              ? ` · viewport ${viewport.w}×${viewport.h ?? "?"}`
+              : ""}
+          </div>
+        )}
+      </div>
+    </details>
+  );
 }
 
 export default async function SitePage({ params }: { params: { id: string } }) {
@@ -42,7 +109,9 @@ export default async function SitePage({ params }: { params: { id: string } }) {
 
   const { data: comments } = await supabase
     .from("comments")
-    .select("id, site_id, page, selector, quote, author, content, status, created_at")
+    .select(
+      "id, site_id, page, selector, quote, author, content, status, created_at, parent_id, triage_status, assignee, tags, snapshot"
+    )
     .eq("site_id", s.id)
     // Hide the install verifier's throwaway test comments, in case a post-test
     // cleanup ever failed and left residue on the hidden check page.
@@ -50,8 +119,11 @@ export default async function SitePage({ params }: { params: { id: string } }) {
     .order("created_at", { ascending: false });
   const rows = (comments ?? []) as CommentRow[];
   const groups = groupByPage(rows);
+  const replies = repliesByParent(rows);
   const firstOrigin = s.allowed_origins.find((o) => o !== "*") ?? "";
   const pendingCount = rows.filter((c) => c.status === "pending").length;
+  const topLevelCount = rows.filter((c) => !c.parent_id).length;
+  const openCount = rows.filter((c) => !c.parent_id && c.triage_status === "open").length;
 
   return (
     <main className="container">
@@ -128,75 +200,154 @@ export default async function SitePage({ params }: { params: { id: string } }) {
         <div className="card__head">
           <h2 style={{ margin: 0 }}>Comments</h2>
           <span className="pill">
-            {rows.length} total
+            {topLevelCount} total
+            {openCount > 0 ? ` · ${openCount} open` : ""}
             {pendingCount > 0 ? ` · ${pendingCount} pending` : ""}
           </span>
         </div>
 
-        {rows.length === 0 ? (
+        {topLevelCount === 0 ? (
           <p className="muted">No comments yet on this site.</p>
         ) : (
           Object.keys(groups).map((page) => (
-            <div key={page} style={{ marginBottom: "1.25rem" }}>
-              <h3 style={{ marginBottom: ".5rem" }}>
+            <div key={page} style={{ marginBottom: "1.5rem" }}>
+              <h3 style={{ marginBottom: ".6rem" }}>
                 {page} <span className="muted small">({groups[page].length})</span>
               </h3>
-              <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th style={{ width: "20%" }}>Author</th>
-                    <th>Comment</th>
-                    <th style={{ width: "18%" }}>When</th>
-                    <th style={{ width: 80 }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {groups[page].map((c) => (
-                    <tr key={c.id}>
-                      <td>
-                        {c.author || "Anonymous"}
+              <div className="stack">
+                {groups[page].map((c) => (
+                  <div key={c.id} className="comment">
+                    <div className="row-between" style={{ alignItems: "baseline" }}>
+                      <div>
+                        <strong>{c.author || "Anonymous"}</strong>{" "}
+                        <span className="muted small">
+                          {new Date(c.created_at).toLocaleString()}
+                        </span>
                         {c.status === "pending" && (
-                          <div>
-                            <span className="pill pill--warn">Pending</span>
-                          </div>
+                          <span className="pill pill--warn" style={{ marginLeft: ".4rem" }}>
+                            Pending
+                          </span>
                         )}
-                      </td>
-                      <td>
-                        {c.quote && (
-                          <div className="muted small" style={{ fontStyle: "italic" }}>
-                            “{c.quote}”
-                          </div>
-                        )}
-                        {c.content}
-                      </td>
-                      <td className="muted small">
-                        {new Date(c.created_at).toLocaleString()}
-                      </td>
-                      <td>
-                        <div style={{ display: "flex", gap: ".4rem", justifyContent: "flex-end" }}>
-                          {c.status === "pending" && (
-                            <form action={approveComment}>
-                              <input type="hidden" name="comment_id" value={c.id} />
-                              <input type="hidden" name="site_id" value={s.id} />
-                              <button className="btn btn--sm" type="submit">
-                                Approve
-                              </button>
-                            </form>
-                          )}
-                          <form action={deleteComment}>
+                        <span
+                          className={`pill triage triage--${c.triage_status}`}
+                          style={{ marginLeft: ".4rem" }}
+                        >
+                          {TRIAGE_LABEL[c.triage_status] ?? c.triage_status}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", gap: ".4rem" }}>
+                        {c.status === "pending" && (
+                          <form action={approveComment}>
                             <input type="hidden" name="comment_id" value={c.id} />
                             <input type="hidden" name="site_id" value={s.id} />
-                            <button className="btn btn--danger btn--sm" type="submit">
-                              {c.status === "pending" ? "Reject" : "Delete"}
+                            <button className="btn btn--sm" type="submit">
+                              Approve
                             </button>
                           </form>
+                        )}
+                        <form action={deleteComment}>
+                          <input type="hidden" name="comment_id" value={c.id} />
+                          <input type="hidden" name="site_id" value={s.id} />
+                          <button className="btn btn--danger btn--sm" type="submit">
+                            {c.status === "pending" ? "Reject" : "Delete"}
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+
+                    {c.quote && (
+                      <div className="muted small" style={{ fontStyle: "italic", marginTop: ".3rem" }}>
+                        “{c.quote}”
+                      </div>
+                    )}
+                    <div style={{ marginTop: ".3rem", whiteSpace: "pre-wrap" }}>{c.content}</div>
+
+                    {c.tags.length > 0 && (
+                      <div style={{ marginTop: ".4rem", display: "flex", gap: ".3rem", flexWrap: "wrap" }}>
+                        {c.tags.map((t) => (
+                          <span key={t} className="pill pill--tag">
+                            {t}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <SnapshotContext snapshot={c.snapshot} />
+
+                    {/* Nested replies */}
+                    {(replies[c.id] ?? []).map((r) => (
+                      <div key={r.id} className="comment comment--reply">
+                        <div className="row-between" style={{ alignItems: "baseline" }}>
+                          <div>
+                            <strong>{r.author || "Anonymous"}</strong>{" "}
+                            <span className="muted small">
+                              {new Date(r.created_at).toLocaleString()}
+                            </span>
+                            {r.status === "pending" && (
+                              <span className="pill pill--warn" style={{ marginLeft: ".4rem" }}>
+                                Pending
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ display: "flex", gap: ".4rem" }}>
+                            {r.status === "pending" && (
+                              <form action={approveComment}>
+                                <input type="hidden" name="comment_id" value={r.id} />
+                                <input type="hidden" name="site_id" value={s.id} />
+                                <button className="btn btn--sm" type="submit">
+                                  Approve
+                                </button>
+                              </form>
+                            )}
+                            <form action={deleteComment}>
+                              <input type="hidden" name="comment_id" value={r.id} />
+                              <input type="hidden" name="site_id" value={s.id} />
+                              <button className="btn btn--danger btn--sm" type="submit">
+                                {r.status === "pending" ? "Reject" : "Delete"}
+                              </button>
+                            </form>
+                          </div>
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                        <div style={{ marginTop: ".3rem", whiteSpace: "pre-wrap" }}>{r.content}</div>
+                      </div>
+                    ))}
+
+                    {/* Triage controls (owner-facing workflow) */}
+                    <form action={setTriage} className="triage-form">
+                      <input type="hidden" name="comment_id" value={c.id} />
+                      <input type="hidden" name="site_id" value={s.id} />
+                      <label className="small">
+                        Status
+                        <select name="triage_status" defaultValue={c.triage_status}>
+                          <option value="open">Open</option>
+                          <option value="in_progress">In progress</option>
+                          <option value="resolved">Resolved</option>
+                        </select>
+                      </label>
+                      <label className="small">
+                        Assignee
+                        <input
+                          type="text"
+                          name="assignee"
+                          defaultValue={c.assignee ?? ""}
+                          placeholder="e.g. alex"
+                        />
+                      </label>
+                      <label className="small">
+                        Tags
+                        <input
+                          type="text"
+                          name="tags"
+                          defaultValue={c.tags.join(", ")}
+                          placeholder="bug, copy"
+                        />
+                      </label>
+                      <button className="btn btn--sm" type="submit">
+                        Save triage
+                      </button>
+                    </form>
+                  </div>
+                ))}
               </div>
             </div>
           ))

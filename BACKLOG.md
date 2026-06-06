@@ -104,19 +104,30 @@ A link that opens the live site with the widget in "review" mode for stakeholder
 aren't logged in (Figma/Markup-style). Turns "install a widget" into "send a link and
 collect feedback in 30 seconds." Likely the single highest-leverage feature.
 
-### B. Triage workflow
+### B. Triage workflow — ✅ Done (migration 0005)
 Comment **status** (open / in-progress / resolved), **assignee**, and **tags**. Separates
 a comment box from a feedback *tool* — owners need to act on feedback, not just read it.
+*Shipped:* `triage_status` / `assignee` / `tags` columns, owner `setTriage` action, and
+per-comment triage controls + status pills in the dashboard.
 
-### C. Visual snapshot at comment time
+### C. Visual snapshot at comment time — ✅ Done (lightweight DOM context)
 Capture a screenshot / DOM snapshot when a comment is created, so feedback keeps its
 original visual context even after a redesign (complements re-anchoring). Optional
 annotation (draw arrows/boxes) on the snapshot.
+*Shipped:* the widget captures a sanitized `snapshot` (url/title, element tag, bounding
+rect, viewport, short text excerpt) at comment time; the dashboard shows it as a
+"Captured context" disclosure. **Still backlog:** a true pixel screenshot (html2canvas +
+Storage bucket) and on-snapshot annotation (draw arrows/boxes) — deferred to avoid widget
+bloat and storage complexity.
 
-### D. Conversation features
+### D. Conversation features — ✅ Partially done (threaded replies)
 Threaded replies, @mentions, emoji reactions, and "someone replied to you" notifications
 to the original commenter. Requires optional **commenter identity** (magic-link / email),
 which also unlocks following up with people who left feedback.
+*Shipped:* threaded replies — a per-comment "Reply" affordance in the widget, `parent_id`
+on comments (validated same-site in the Edge Function), nested rendering in both the
+widget thread/panel and the dashboard. **Still backlog:** @mentions, reactions,
+reply notifications, and commenter identity.
 
 ### E. Targeting & theming
 Per-page rules for where the widget appears (e.g. only `/docs/*`, only staging) and

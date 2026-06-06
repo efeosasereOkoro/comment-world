@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient, type RealtimeChannel } from "@supabase/supabase-js";
 import { SUPABASE_URL, SUPABASE_KEY, FUNCTIONS_URL } from "./config";
-import type { Comment, CommentRow } from "./types";
+import type { Comment, CommentRow, CommentSnapshot } from "./types";
 
 // Lazy-init: supabase-js is bundled into widget.js, but the client itself is only
 // constructed the first time the widget actually needs the backend (deferred
@@ -27,6 +27,10 @@ export interface NewComment {
   quote: string;
   name: string;
   text: string;
+  /** Set when posting a reply to an existing comment. */
+  parentId?: string | null;
+  /** Capture-time page/element context (top-level comments only). */
+  snapshot?: CommentSnapshot | null;
 }
 
 /** Outcome of a successful post. `pending` means the site moderates and the comment
@@ -67,6 +71,7 @@ export class CommentStore {
       name: r.author || "Anonymous",
       text: r.content || "",
       createdAt: r.created_at ? new Date(r.created_at).getTime() : 0,
+      parentId: r.parent_id || null,
     }));
     list.sort((a, b) => a.createdAt - b.createdAt);
     return list;
@@ -79,7 +84,7 @@ export class CommentStore {
     // reads to approved rows, so no status filter is needed here.
     const res = await supabase
       .from("comments")
-      .select("id, site_id, page, selector, quote, author, content, created_at")
+      .select("id, site_id, page, selector, quote, author, content, created_at, parent_id")
       .eq("site_id", this.siteId)
       .eq("page", this.pageKey);
     if (res.error) {
@@ -128,6 +133,8 @@ export class CommentStore {
         name: comment.name,
         text: comment.text,
         turnstileToken: comment.turnstileToken,
+        parentId: comment.parentId ?? null,
+        snapshot: comment.snapshot ?? null,
       }),
     });
     if (!res.ok) {

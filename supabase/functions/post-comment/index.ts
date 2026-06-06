@@ -73,6 +73,38 @@ function clip(value: unknown, max: number): string | null {
   return s ? s.slice(0, max) : null;
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Sanitize the widget's capture-time snapshot into a small, fixed-shape object.
+ *  Only whitelisted fields are kept; strings are clipped and numbers rounded, so a
+ *  client can't smuggle arbitrary/oversized JSON into the column. */
+function sanitizeSnapshot(raw: unknown): Record<string, unknown> | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const obj = (v: unknown): Record<string, unknown> =>
+    v && typeof v === "object" ? (v as Record<string, unknown>) : {};
+  const num = (v: unknown): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? Math.round(v) : null;
+  const vp = obj(r.viewport);
+  const rect = obj(r.rect);
+  const snap = {
+    url: clip(r.url, 2000),
+    title: clip(r.title, 300),
+    tag: clip(r.tag, 40),
+    context: clip(r.context, 600),
+    viewport: { w: num(vp.w), h: num(vp.h) },
+    rect: {
+      top: num(rect.top),
+      left: num(rect.left),
+      width: num(rect.width),
+      height: num(rect.height),
+    },
+  };
+  // Drop entirely if nothing useful survived sanitization.
+  const hasContent = snap.url || snap.title || snap.tag || snap.context;
+  return hasContent ? snap : null;
+}
+
 /** Best-effort client IP from the platform's proxy headers. */
 function clientIp(req: Request): string | null {
   const xff = req.headers.get("x-forwarded-for");
@@ -133,9 +165,15 @@ Deno.serve(async (req) => {
   const selector = clip(body.selector, MAX_SELECTOR);
   const quote = clip(body.quote, MAX_QUOTE);
   const turnstileToken = clip(body.turnstileToken, 4000);
+  const parentId = clip(body.parentId, 64);
+  const snapshot = sanitizeSnapshot(body.snapshot);
 
   if (!siteId || !page || !name || !text) {
     return json(400, { error: "missing_fields" }, origin);
+  }
+
+  if (parentId && !UUID_RE.test(parentId)) {
+    return json(400, { error: "invalid_parent" }, origin);
   }
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
@@ -153,6 +191,20 @@ Deno.serve(async (req) => {
 
   if (!originAllowed(origin, site.allowed_origins as string[] | null)) {
     return json(403, { error: "origin_not_allowed" }, origin);
+  }
+
+  // A reply must point at an existing comment on THIS site (prevents cross-tenant
+  // threading and dangling parents).
+  if (parentId) {
+    const { data: parent, error: parentErr } = await admin
+      .from("comments")
+      .select("id, site_id")
+      .eq("id", parentId)
+      .maybeSingle();
+    if (parentErr) return json(500, { error: "lookup_failed" }, origin);
+    if (!parent || parent.site_id !== siteId) {
+      return json(400, { error: "invalid_parent" }, origin);
+    }
   }
 
   // ---- optional CAPTCHA (only when configured) -----------------------------
@@ -196,6 +248,8 @@ Deno.serve(async (req) => {
     content: text,
     status,
     ip_hash: ipHash,
+    parent_id: parentId,
+    snapshot,
   });
 
   if (insErr) return json(500, { error: "insert_failed" }, origin);

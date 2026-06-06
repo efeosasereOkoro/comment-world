@@ -93,6 +93,44 @@ export async function approveComment(formData: FormData) {
   revalidatePath(`/dashboard/sites/${siteId}`);
 }
 
+const TRIAGE_STATUSES = ["open", "in_progress", "resolved"] as const;
+
+/** Update the owner-facing triage fields on a comment (status / assignee / tags).
+ *  This is orthogonal to the public-visibility `status` column. RLS already limits
+ *  the update to comments on sites the caller owns (comments_update_owner). */
+export async function setTriage(formData: FormData) {
+  const supabase = createClient();
+  const commentId = String(formData.get("comment_id") || "");
+  const siteId = String(formData.get("site_id") || "");
+  if (!commentId) return;
+
+  const rawStatus = String(formData.get("triage_status") || "open");
+  const triage_status = (TRIAGE_STATUSES as readonly string[]).includes(rawStatus)
+    ? rawStatus
+    : "open";
+
+  const assigneeRaw = String(formData.get("assignee") || "").trim();
+  const assignee = assigneeRaw ? assigneeRaw.slice(0, 120) : null;
+
+  // Tags are entered comma-separated; normalize to a trimmed, deduped, capped array.
+  const tags = Array.from(
+    new Set(
+      String(formData.get("tags") || "")
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .map((t) => t.slice(0, 40))
+    )
+  ).slice(0, 20);
+
+  const { error } = await supabase
+    .from("comments")
+    .update({ triage_status, assignee, tags })
+    .eq("id", commentId);
+  if (error) throw new Error(error.message);
+  revalidatePath(`/dashboard/sites/${siteId}`);
+}
+
 export async function deleteComment(formData: FormData) {
   const supabase = createClient();
   const commentId = String(formData.get("comment_id") || "");

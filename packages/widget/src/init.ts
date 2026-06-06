@@ -8,7 +8,7 @@
  * highlight) — both are self-scoped via inline styles and never rely on host CSS.
  * Hit-testing across the shadow boundary uses event.composedPath(). */
 
-import type { Comment, WidgetConfig } from "./types";
+import type { Comment, CommentSnapshot, WidgetConfig } from "./types";
 import { NAME_KEY } from "./config";
 import { computePageKey } from "./page-key";
 import { getSelector, resolveAnchor, elementFromSelection } from "./selector";
@@ -68,6 +68,42 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     return new Date(ts).toLocaleString();
   }
 
+  /** Replies to a given comment id, oldest first. */
+  function repliesOf(parentId: string): Comment[] {
+    return state.comments
+      .filter((c) => c.parentId === parentId)
+      .sort((a, b) => a.createdAt - b.createdAt);
+  }
+
+  /** Capture what the anchored spot looks like right now, so the feedback keeps its
+   *  original context even if the page is later redesigned. Best-effort; never throws. */
+  function captureSnapshot(el: Element | null, quote: string): CommentSnapshot | null {
+    try {
+      const rect = el ? el.getBoundingClientRect() : null;
+      const text = (quote || (el && el.textContent) || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .slice(0, 600);
+      return {
+        url: location.href,
+        title: document.title,
+        tag: el ? el.tagName.toLowerCase() : null,
+        context: text || null,
+        viewport: { w: window.innerWidth, h: window.innerHeight },
+        rect: rect
+          ? {
+              top: Math.round(rect.top + window.scrollY),
+              left: Math.round(rect.left + window.scrollX),
+              width: Math.round(rect.width),
+              height: Math.round(rect.height),
+            }
+          : { top: null, left: null, width: null, height: null },
+      };
+    } catch {
+      return null;
+    }
+  }
+
   /** True if the event originated within the widget's own UI (shadow tree or pins). */
   function eventInWidget(e: Event): boolean {
     const path = e.composedPath();
@@ -97,7 +133,8 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
   const countEl = panelBtn.querySelector(".cmt-btn__count") as HTMLElement;
 
   function updateCount(): void {
-    countEl.textContent = String(state.comments.length);
+    // Pins/badge count top-level comments only; replies are nested under them.
+    countEl.textContent = String(state.comments.filter((c) => !c.parentId).length);
   }
 
   addBtn.addEventListener("click", () => setMode(!state.mode));
@@ -121,11 +158,15 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
   pins.style.cssText = PINS_LAYER_CSS;
   document.body.appendChild(pins);
 
+  // Pins and panel groups are keyed by selector and built from TOP-LEVEL comments
+  // only; replies are pulled in via repliesOf() where each comment is rendered.
   function groupedBySelector(): Record<string, Comment[]> {
     const groups: Record<string, Comment[]> = {};
-    state.comments.forEach((c) => {
-      (groups[c.selector] = groups[c.selector] || []).push(c);
-    });
+    state.comments
+      .filter((c) => !c.parentId)
+      .forEach((c) => {
+        (groups[c.selector] = groups[c.selector] || []).push(c);
+      });
     return groups;
   }
 
@@ -228,9 +269,10 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     if (!targetEl) return;
 
     const selector = getSelector(targetEl);
+    const snapshot = captureSnapshot(targetEl, quote);
     clearHover();
     setMode(false);
-    openComposer(selector || "", quote, e.pageX, e.pageY);
+    openComposer(selector || "", quote, e.pageX, e.pageY, { snapshot });
   }
 
   document.addEventListener("keydown", (e) => {
@@ -284,7 +326,15 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
 
   // ---- composer (new comment) ----------------------------------------
 
-  function openComposer(selector: string, quote: string, x?: number, y?: number): void {
+  function openComposer(
+    selector: string,
+    quote: string,
+    x?: number,
+    y?: number,
+    opts?: { parentId?: string | null; snapshot?: CommentSnapshot | null }
+  ): void {
+    const parentId = opts?.parentId ?? null;
+    const snapshot = opts?.snapshot ?? null;
     closePopover();
     const el = highlightTarget(selector, quote);
     if (el && !x) {
@@ -298,7 +348,9 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     pop.className = "cmt-popover";
     pop.dataset.kind = "composer";
     pop.innerHTML =
-      '<div class="cmt-popover__head"><span>Add a comment</span>' +
+      '<div class="cmt-popover__head"><span>' +
+      (parentId ? "Write a reply" : "Add a comment") +
+      "</span>" +
       '<button type="button" class="cmt-close" aria-label="Close">&times;</button></div>' +
       '<div class="cmt-popover__body">' +
       (quote ? '<div class="cmt-quote">' + esc(quote) + "</div>" : "") +
@@ -336,7 +388,7 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
       saveBtn.disabled = true;
       saveBtn.textContent = "Saving…";
       try {
-        const { status } = await store.add({ selector, quote, name, text });
+        const { status } = await store.add({ selector, quote, name, text, parentId, snapshot });
         closePopover();
         if (status === "pending") {
           showHint("Thanks! Your comment was submitted and is awaiting review.");
@@ -377,8 +429,23 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     (pop.querySelector(".cmt-close") as HTMLElement).addEventListener("click", closePopover);
   }
 
+  /** Build the meta + text markup shared by a comment and its replies. */
+  function commentInnerHtml(c: Comment): string {
+    return (
+      '<div class="cmt-item__meta"><span class="cmt-item__author">' +
+      esc(c.name) +
+      '</span><span class="cmt-item__time">' +
+      esc(formatTime(c.createdAt)) +
+      "</span></div>" +
+      '<div class="cmt-item__text">' +
+      esc(c.text) +
+      "</div>"
+    );
+  }
+
   function renderThreadBody(body: HTMLElement, selector: string): void {
-    const items = state.comments.filter((c) => c.selector === selector);
+    // Top-level comments on this element; replies are nested under each one.
+    const items = state.comments.filter((c) => c.selector === selector && !c.parentId);
     const quote = items[0] && items[0].quote;
     body.innerHTML = quote ? '<div class="cmt-quote">' + esc(quote) + "</div>" : "";
 
@@ -390,15 +457,35 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     items.forEach((c) => {
       const item = document.createElement("div");
       item.className = "cmt-item";
-      item.innerHTML =
-        '<div class="cmt-item__meta"><span class="cmt-item__author">' +
-        esc(c.name) +
-        '</span><span class="cmt-item__time">' +
-        esc(formatTime(c.createdAt)) +
-        "</span></div>" +
-        '<div class="cmt-item__text">' +
-        esc(c.text) +
-        "</div>";
+      item.innerHTML = commentInnerHtml(c);
+
+      // Nested replies, oldest first.
+      repliesOf(c.id).forEach((r) => {
+        const reply = document.createElement("div");
+        reply.className = "cmt-reply";
+        reply.innerHTML = commentInnerHtml(r);
+        item.appendChild(reply);
+      });
+
+      // Per-comment reply affordance (Disqus-style conversation).
+      const replyBtn = document.createElement("button");
+      replyBtn.type = "button";
+      replyBtn.className = "cmt-reply-btn";
+      replyBtn.textContent = "Reply";
+      replyBtn.addEventListener("click", () => {
+        const el = resolveGroup(selector, quote || "");
+        let x: number | undefined;
+        let y: number | undefined;
+        if (el) {
+          const r = el.getBoundingClientRect();
+          x = r.left + window.scrollX;
+          y = r.bottom + window.scrollY;
+        }
+        // Replies reuse the parent's selector but carry no quote/snapshot of their own.
+        openComposer(selector, "", x, y, { parentId: c.id });
+      });
+      item.appendChild(replyBtn);
+
       body.appendChild(item);
     });
 
@@ -416,7 +503,8 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
         x = r.left + window.scrollX;
         y = r.bottom + window.scrollY;
       }
-      openComposer(selector, quote || "", x, y);
+      const snapshot = captureSnapshot(el, quote || "");
+      openComposer(selector, quote || "", x, y, { snapshot });
     });
     body.appendChild(addAnother);
   }
@@ -452,17 +540,12 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
       esc(preview) +
       "</div>" +
       items
-        .map(
-          (c) =>
-            '<div class="cmt-item__meta"><span class="cmt-item__author">' +
-            esc(c.name) +
-            '</span><span class="cmt-item__time">' +
-            esc(formatTime(c.createdAt)) +
-            "</span></div>" +
-            '<div class="cmt-item__text">' +
-            esc(c.text) +
-            "</div>"
-        )
+        .map((c) => {
+          const replies = repliesOf(c.id)
+            .map((r) => '<div class="cmt-reply">' + commentInnerHtml(r) + "</div>")
+            .join("");
+          return commentInnerHtml(c) + replies;
+        })
         .join('<hr style="border:none;border-top:1px solid #eee;margin:.4rem 0">');
     // Only located groups scroll-to-element on click; orphaned ones are display-only
     // (their full text is shown inline above, so the comment is never lost).
