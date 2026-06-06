@@ -137,6 +137,7 @@ export default async function SitePage({ params }: { params: { id: string } }) {
               <h3 style={{ marginBottom: ".5rem" }}>
                 {page} <span className="muted small">({groups[page].length})</span>
               </h3>
+              <div className="table-wrap">
               <table>
                 <thead>
                   <tr>
@@ -192,6 +193,7 @@ export default async function SitePage({ params }: { params: { id: string } }) {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           ))
         )}

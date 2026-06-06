@@ -79,6 +79,7 @@ export default async function AdminPage() {
 
         <div className="card">
           <h2>Users</h2>
+          <div className="table-wrap">
           <table>
             <thead>
               <tr>
@@ -108,10 +109,12 @@ export default async function AdminPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
 
         <div className="card">
           <h2>Sites</h2>
+          <div className="table-wrap">
           <table>
             <thead>
               <tr>
@@ -144,6 +147,7 @@ export default async function AdminPage() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
       </main>
     </>

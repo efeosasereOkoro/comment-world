@@ -22,7 +22,7 @@ export default async function DashboardLayout({
         <nav>
           <Link href="/dashboard">My sites</Link>
           {admin && <Link href="/admin">Admin</Link>}
-          <span className="muted small">{user.email}</span>
+          <span className="muted small topbar__email">{user.email}</span>
           <LogoutButton />
         </nav>
       </header>

@@ -11,15 +11,15 @@ const SNIPPET =
 
 const BENEFITS = [
   {
-    title: "One snippet, any stack",
+    title: "Install in two lines",
     body: "Two script tags on any page — static HTML, WordPress, React, anything. No backend changes, no rebuild.",
     icon: (
       <path d="M8 6 4 12l4 6M16 6l4 6-4 6M13 4l-2 16" strokeWidth="1.8" fill="none" />
     ),
   },
   {
-    title: "Anchored to the page",
-    body: "Comments attach to the exact element or highlighted text — and re-anchor themselves when the page is redesigned.",
+    title: "Pinned to the page",
+    body: "Feedback attaches to the exact element or highlighted text — and re-anchors itself when the page is redesigned.",
     icon: (
       <path
         d="M12 21s-7-5.2-7-10a7 7 0 0 1 14 0c0 4.8-7 10-7 10Zm0-7.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"
@@ -72,11 +72,11 @@ export default async function Home() {
       <section className="lp-hero">
         <div className="lp-hero__inner">
           <div>
-            <span className="lp-eyebrow">Embeddable comments</span>
-            <h1 className="lp-h1">Add comments to any website in two lines.</h1>
+            <span className="lp-eyebrow">Website feedback widget</span>
+            <h1 className="lp-h1">Collect feedback on your live site — in two lines of code.</h1>
             <p className="lp-sub">
-              commentbox lets your visitors leave anchored comments right on your live
-              pages — installed like a chat widget, scoped to your site.
+              commentbox lets visitors pin comments to the exact spot on the page,
+              without leaving it. Installed like a chat widget, scoped to your domain.
             </p>
             <div className="lp-cta-row">
               <Link className="btn btn--lg" href={ctaHref}>
@@ -87,6 +87,7 @@ export default async function Home() {
               </a>
             </div>
             <p className="lp-note">No iframe. No rebuild. Live in about 2 minutes.</p>
+            <p className="lp-trust">Works on any stack · Free to start · No credit card</p>
           </div>
 
           <div className="lp-hero__code">
@@ -104,7 +105,7 @@ export default async function Home() {
       <section className="lp-section">
         <div className="lp-section-head">
           <h2>Everything you need to collect feedback in context</h2>
-          <p>Built to drop onto a site you already have, without getting in the way.</p>
+          <p>Drop in-line comments onto a site you already have — without getting in the way.</p>
         </div>
         <div className="lp-benefits">
           {BENEFITS.map((b) => (
