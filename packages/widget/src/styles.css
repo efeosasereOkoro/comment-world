@@ -242,19 +242,48 @@
 }
 
 .cmt-reply-btn {
-  margin-top: 0.35rem;
-  padding: 0;
-  border: none;
-  background: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid var(--cw-primary);
+  border-radius: var(--cw-radius);
+  background: var(--cw-surface);
   color: var(--cw-primary);
   font-family: var(--cw-font);
   font-size: var(--cw-fs-sm);
   font-weight: var(--cw-fw-bold);
+  line-height: 1.2;
   cursor: pointer;
 }
 
 .cmt-reply-btn:hover {
-  text-decoration: underline;
+  background: var(--cw-primary);
+  color: var(--cw-surface);
+}
+
+/* "Add another comment" — lower-frequency action, so a lighter full-width
+   dashed button keeps the per-comment Reply as the visually primary action. */
+.cmt-add-another {
+  display: block;
+  width: 100%;
+  margin-top: 0.7rem;
+  border: 1px dashed var(--cw-border);
+  background: var(--cw-surface);
+  color: var(--cw-text-muted);
+}
+
+.cmt-add-another:hover {
+  border-color: var(--cw-primary);
+  color: var(--cw-primary);
+}
+
+/* Separator between comments in a side-panel group */
+.cmt-sep {
+  border: none;
+  border-top: 1px solid var(--cw-border);
+  margin: 0.5rem 0;
 }
 
 .cmt-hint {

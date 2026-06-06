@@ -471,7 +471,7 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
       const replyBtn = document.createElement("button");
       replyBtn.type = "button";
       replyBtn.className = "cmt-reply-btn";
-      replyBtn.textContent = "Reply";
+      replyBtn.textContent = "↳ Reply";
       replyBtn.addEventListener("click", () => {
         const el = resolveGroup(selector, quote || "");
         let x: number | undefined;
@@ -491,9 +491,8 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
 
     const addAnother = document.createElement("button");
     addAnother.type = "button";
-    addAnother.className = "cmt-action cmt-action--secondary";
-    addAnother.style.marginTop = ".6rem";
-    addAnother.textContent = "Add another comment";
+    addAnother.className = "cmt-action cmt-add-another";
+    addAnother.textContent = "+ Add another comment";
     addAnother.addEventListener("click", () => {
       const el = resolveGroup(selector, quote || "");
       let x: number | undefined;
@@ -534,19 +533,61 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     group.className = "cmt-panel__group" + (located ? "" : " cmt-panel__group--orphan");
     const preview =
       quote || (located ? (located.textContent || "").trim().slice(0, 60) : "(no preview)");
-    group.innerHTML =
-      (located ? "" : '<div class="cmt-orphan-tag">Couldn’t locate on this page</div>') +
-      '<div class="cmt-quote" style="margin-bottom:.4rem">' +
-      esc(preview) +
-      "</div>" +
-      items
-        .map((c) => {
-          const replies = repliesOf(c.id)
-            .map((r) => '<div class="cmt-reply">' + commentInnerHtml(r) + "</div>")
-            .join("");
-          return commentInnerHtml(c) + replies;
-        })
-        .join('<hr style="border:none;border-top:1px solid #eee;margin:.4rem 0">');
+
+    if (!located) {
+      const tag = document.createElement("div");
+      tag.className = "cmt-orphan-tag";
+      tag.textContent = "Couldn’t locate on this page";
+      group.appendChild(tag);
+    }
+
+    const previewEl = document.createElement("div");
+    previewEl.className = "cmt-quote";
+    previewEl.style.marginBottom = ".4rem";
+    previewEl.textContent = preview;
+    group.appendChild(previewEl);
+
+    items.forEach((c, idx) => {
+      if (idx > 0) {
+        const sep = document.createElement("hr");
+        sep.className = "cmt-sep";
+        group.appendChild(sep);
+      }
+      const item = document.createElement("div");
+      item.innerHTML = commentInnerHtml(c);
+
+      repliesOf(c.id).forEach((r) => {
+        const reply = document.createElement("div");
+        reply.className = "cmt-reply";
+        reply.innerHTML = commentInnerHtml(r);
+        item.appendChild(reply);
+      });
+
+      // Reply straight from the side panel (only for locatable comments — the
+      // composer needs to anchor/highlight the element it's attached to).
+      if (located) {
+        const replyBtn = document.createElement("button");
+        replyBtn.type = "button";
+        replyBtn.className = "cmt-reply-btn";
+        replyBtn.textContent = "↳ Reply";
+        replyBtn.addEventListener("click", (e) => {
+          e.stopPropagation(); // don't trigger the group's scroll-to-element
+          const el = resolveGroup(selector, quote);
+          let x: number | undefined;
+          let y: number | undefined;
+          if (el) {
+            const r = el.getBoundingClientRect();
+            x = r.left + window.scrollX;
+            y = r.bottom + window.scrollY;
+          }
+          openComposer(selector, "", x, y, { parentId: c.id });
+        });
+        item.appendChild(replyBtn);
+      }
+
+      group.appendChild(item);
+    });
+
     // Only located groups scroll-to-element on click; orphaned ones are display-only
     // (their full text is shown inline above, so the comment is never lost).
     if (located) {
