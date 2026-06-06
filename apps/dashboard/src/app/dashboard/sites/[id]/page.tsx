@@ -5,9 +5,9 @@ import { WIDGET_SRC } from "@/lib/env";
 import type { Site, CommentRow } from "@/lib/types";
 import CopyBlock from "@/components/CopyBlock";
 import VerifyInstall from "@/components/VerifyInstall";
+import DeleteSiteButton from "@/components/DeleteSiteButton";
 import {
   updateOrigins,
-  deleteSite,
   deleteComment,
   setModeration,
   approveComment,
@@ -56,12 +56,7 @@ export default async function SitePage({ params }: { params: { id: string } }) {
       </p>
       <div className="row-between">
         <h1>{s.name}</h1>
-        <form action={deleteSite}>
-          <input type="hidden" name="site_id" value={s.id} />
-          <button className="btn btn--danger btn--sm" type="submit">
-            Delete site
-          </button>
-        </form>
+        <DeleteSiteButton siteId={s.id} siteName={s.name} />
       </div>
       <p className="muted small">
         siteId: <code>{s.id}</code>

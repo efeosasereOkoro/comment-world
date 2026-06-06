@@ -77,7 +77,22 @@ export async function updateOrigins(formData: FormData) {
 export async function deleteSite(formData: FormData) {
   const supabase = createClient();
   const id = String(formData.get("site_id") || "");
+  const confirmName = String(formData.get("confirm_name") || "").trim();
   if (!id) return;
+
+  // Defense in depth: the client requires typing the site name, but re-verify it
+  // server-side so the cascading delete can't be triggered by a scripted form post
+  // that skips the confirmation UI.
+  const { data: site, error: lookupError } = await supabase
+    .from("sites")
+    .select("name")
+    .eq("id", id)
+    .single();
+  if (lookupError) throw new Error(lookupError.message);
+  if (!site || confirmName !== site.name) {
+    throw new Error("Confirmation text did not match the site name; site not deleted.");
+  }
+
   const { error } = await supabase.from("sites").delete().eq("id", id);
   if (error) throw new Error(error.message);
   revalidatePath("/dashboard");
