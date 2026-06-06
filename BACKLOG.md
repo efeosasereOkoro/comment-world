@@ -91,6 +91,59 @@ retention and PII handling are documented.
 
 ---
 
+## Product & growth ideas (unprioritized — needs a direction decision first)
+
+> **Strategic fork to resolve before sequencing these:** decide whether commentbox is
+> primarily **public comments** (Disqus-style) or **private website feedback / review**
+> (Markup.io / BugHerd-style). The current landing copy leans "feedback / review," which
+> is the more defensible, monetizable lane and matches the product's origin. Most of the
+> items below get sharper once that's chosen; the top three assume the feedback lane.
+
+### A. Share-link review mode  *(top bet)*
+A link that opens the live site with the widget in "review" mode for stakeholders who
+aren't logged in (Figma/Markup-style). Turns "install a widget" into "send a link and
+collect feedback in 30 seconds." Likely the single highest-leverage feature.
+
+### B. Triage workflow
+Comment **status** (open / in-progress / resolved), **assignee**, and **tags**. Separates
+a comment box from a feedback *tool* — owners need to act on feedback, not just read it.
+
+### C. Visual snapshot at comment time
+Capture a screenshot / DOM snapshot when a comment is created, so feedback keeps its
+original visual context even after a redesign (complements re-anchoring). Optional
+annotation (draw arrows/boxes) on the snapshot.
+
+### D. Conversation features
+Threaded replies, @mentions, emoji reactions, and "someone replied to you" notifications
+to the original commenter. Requires optional **commenter identity** (magic-link / email),
+which also unlocks following up with people who left feedback.
+
+### E. Targeting & theming
+Per-page rules for where the widget appears (e.g. only `/docs/*`, only staging) and
+widget **theming** (colors, position, dark mode) so it matches the host site.
+
+### F. Integrations / webhooks
+Push new comments to Slack / Discord / Linear / Jira. Integrations embed the tool in a
+team's existing workflow and drive retention.
+
+### G. Spam & content quality
+Akismet-style content filtering, profanity filter, link limits, honeypot — beyond the
+existing per-IP rate limiting and captcha.
+
+### H. Analytics
+Comment volume over time, top pages, response time, per-site charts — so owners *see*
+the value and stay.
+
+### I. Business model
+Stripe plans (free tier + paid quota / seats / white-label) and **team seats / roles**
+(today it's one owner per site; multiple moderators is a near-term need).
+
+### J. Distribution
+Framework install packages — React component, WordPress plugin, Webflow embed — to cut
+install friction and capture SEO long-tail.
+
+---
+
 ## Standing housekeeping (not backlog, do soon)
 
 - **Rotate exposed secrets**: Supabase service-role key, Supabase personal access token,
