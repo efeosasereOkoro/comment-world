@@ -161,6 +161,63 @@ install friction and capture SEO long-tail.
 
 ---
 
+## v1 UX / service-design audit (post-ship, 2026-06-06)
+
+Findings from auditing the shipped widget end-to-end. Severity P1 (biggest journey
+gap) → P3 (polish). Items that overlap an existing entry are cross-referenced rather
+than duplicated.
+
+### S1. Touch / mobile interaction model — **P1**
+The "enter mode → click an element / select text" flow is mouse-centric (crosshair
+cursor, hover outline, precise element targeting). Touch has no hover, element-tapping
+is imprecise, and text-selection fights a floating toolbar. For public-facing gov/marketing
+pages, mobile visitors are a large share. *Direction:* a touch-first commenting path
+(tap-to-pin with a confirm step, larger targets, bottom-sheet composer). Highest-leverage
+gap. *Acceptance:* a visitor can place and post a comment on a phone without a mouse.
+
+### S2. Visitor self-service: edit / delete own comment — **P2**
+After posting, a commenter can't edit or delete their own comment, and there's no "my
+comments" view. Both a UX expectation and a privacy angle. Distinct from backlog #5
+(owner-side export/erasure); needs a notion of commenter identity (see D). *Acceptance:*
+the original author can edit/remove their comment within a session/identity.
+
+### S3. Close the feedback loop for the commenter — **P2**
+Triage (open / in-progress / resolved) is owner-only; the person who left feedback never
+learns it was seen or actioned. *Direction:* optionally surface "resolved" / a team
+response to the commenter (pairs with reply notifications in D). *Acceptance:* a commenter
+can see that their feedback was acknowledged/resolved.
+
+### S4. First-run discoverability — **P3**
+Two bottom-right buttons, no onboarding; a first-time visitor doesn't know "Add comment"
+attaches to page elements. *Direction:* a one-time coachmark / tooltip on first load.
+
+### U1. Replace `alert()` with inline, accessible messaging — **P2**
+Rate-limit and save-failure use native `alert()` (jarring, un-styled, blocks the thread,
+poor for assistive tech). *Direction:* an inline error region inside the composer, wired
+to an ARIA live region (combine with A1 below).
+
+### U2. Show validation messages — **P3**
+Empty name/text just refocuses the field silently; add visible "Name is required" / "Comment
+is required" text so a rejected save doesn't read as a broken button.
+
+### U3. Success confirmation when not moderated — **P3**
+Moderated posts get an "awaiting review" hint; approved posts close silently. Add a brief
+"Comment posted" toast for parity.
+
+### U4 / U5. Side-panel scroll affordance + relative timestamps — **P3**
+The whole side-panel card is click-to-scroll but nothing signals it; add an explicit
+"jump to" affordance. Swap absolute timestamps (`06/06/2026, 18:06:04`) for relative
+("2h ago") with the full date on hover.
+
+### A1–A3. Widget accessibility specifics — **P2** (rolls up into item 4 above)
+Concrete gaps found: the composer/thread popover is not a real dialog (no `role="dialog"` /
+`aria-modal`, **no focus trap**, focus not restored to the trigger on close); there's no
+meaningful keyboard path to choose a comment target while in comment mode; and white-on-
+`hsl(h,52%,42%)` avatar text contrast should be verified/pinned to WCAG AA. Fold these into
+the **Widget accessibility (a11y)** backlog item (#4).
+
+---
+
 ## Standing housekeeping (not backlog, do soon)
 
 - **Rotate exposed secrets**: Supabase service-role key, Supabase personal access token,
