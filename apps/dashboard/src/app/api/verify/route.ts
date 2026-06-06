@@ -1,9 +1,77 @@
 import { NextResponse } from "next/server";
+import https from "node:https";
 import { getUser } from "@/lib/auth";
+import { createClient } from "@/lib/supabase/server";
+import { SUPABASE_URL, SUPABASE_KEY } from "@/lib/env";
 
-/** Server-side installation check: fetch the owner's page and look for the widget
- *  script and this site's siteId in the returned HTML. Done server-side to avoid
- *  the browser's cross-origin restrictions. */
+/**
+ * Server-side installation check. Two parts:
+ *  1. Fetch the owner's page and confirm the widget script + siteId are present.
+ *  2. Actually exercise the write path: POST a throwaway test comment to the
+ *     post-comment Edge Function with the page's Origin, so we catch the #1 real
+ *     failure — an origin that isn't on the site's allowlist (a 403 the plain
+ *     "script is on the page" check can't see). The test comment is written to a
+ *     hidden page key and deleted immediately, so it never shows on the live page.
+ *
+ *  Done server-side to dodge the browser's cross-origin restrictions, and to let us
+ *  set the Origin header to the verified page (browsers forbid that; Node doesn't).
+ */
+
+const CHECK_PAGE = "__commentbox_install_check__";
+const FUNCTIONS_URL = SUPABASE_URL ? SUPABASE_URL.replace(/\/+$/, "") + "/functions/v1" : "";
+
+type PostResult = { status: number; body: { error?: string; status?: string } | null };
+
+/** POST to the Edge Function with a chosen Origin header (node:https gives us full
+ *  header control — fetch/undici strips a forbidden `Origin`). */
+function postTestComment(origin: string, siteId: string): Promise<PostResult> {
+  return new Promise((resolve) => {
+    const u = new URL(FUNCTIONS_URL + "/post-comment");
+    const data = JSON.stringify({
+      siteId,
+      page: CHECK_PAGE,
+      name: "commentbox",
+      text: "Installation check — safe to ignore.",
+      selector: "",
+      quote: "",
+    });
+    const req = https.request(
+      {
+        hostname: u.hostname,
+        path: u.pathname,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": Buffer.byteLength(data),
+          apikey: SUPABASE_KEY,
+          Authorization: "Bearer " + SUPABASE_KEY,
+          Origin: origin,
+        },
+      },
+      (res) => {
+        let raw = "";
+        res.on("data", (c) => (raw += c));
+        res.on("end", () => {
+          let body: PostResult["body"] = null;
+          try {
+            body = JSON.parse(raw);
+          } catch {
+            /* non-JSON body */
+          }
+          resolve({ status: res.statusCode || 0, body });
+        });
+      }
+    );
+    req.on("error", () => resolve({ status: 0, body: null }));
+    req.setTimeout(10000, () => {
+      req.destroy();
+      resolve({ status: 0, body: null });
+    });
+    req.write(data);
+    req.end();
+  });
+}
+
 export async function POST(req: Request) {
   const user = await getUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
@@ -28,10 +96,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid_url" }, { status: 400 });
   }
 
-  // Try the URL as given, then forgiving variants. A common mistake is a trailing
-  // slash after a filename (e.g. ".../index.html/"), which static hosts like GitHub
-  // Pages treat as a missing directory and 404. Build de-duplicated candidates that
-  // toggle that trailing slash so the check succeeds on the page the user means.
+  // Try the URL as given, then forgiving variants. A trailing slash after a filename
+  // (".../index.html/") makes static hosts 404; toggle it so the check still finds
+  // the page the user means.
   const candidates: string[] = [];
   const pushCandidate = (u: URL) => {
     const s = u.toString();
@@ -50,7 +117,7 @@ export async function POST(req: Request) {
 
   let html = "";
   let lastStatus = 0;
-  let fetched = false;
+  let fetchedUrl = "";
   for (const candidate of candidates) {
     try {
       const res = await fetch(candidate, {
@@ -60,7 +127,7 @@ export async function POST(req: Request) {
       });
       if (res.ok) {
         html = await res.text();
-        fetched = true;
+        fetchedUrl = res.url || candidate;
         break;
       }
       lastStatus = res.status;
@@ -69,7 +136,7 @@ export async function POST(req: Request) {
     }
   }
 
-  if (!fetched) {
+  if (!fetchedUrl) {
     return NextResponse.json(
       {
         ok: false,
@@ -81,12 +148,55 @@ export async function POST(req: Request) {
     );
   }
 
-  const foundSiteId = html.includes(siteId);
-  const foundScript = /commentbox|widget\.js|CommentWidget/i.test(html);
+  const siteIdOk = html.includes(siteId);
+  const scriptOk = /commentbox|widget\.js|CommentWidget/i.test(html);
+  const origin = new URL(fetchedUrl).origin;
+
+  // Part 2: exercise the real write path from the page's origin.
+  let writeOk = false;
+  let writeStatus:
+    | "ok"
+    | "pending"
+    | "origin_not_allowed"
+    | "rate_limited"
+    | "captcha_required"
+    | "unknown_site"
+    | "error" = "error";
+
+  if (FUNCTIONS_URL) {
+    const res = await postTestComment(origin, siteId);
+    if (res.status === 200) {
+      writeOk = true;
+      writeStatus = res.body?.status === "pending" ? "pending" : "ok";
+      // Clean up the throwaway test comment(s) on the hidden check page.
+      try {
+        const supabase = createClient();
+        await supabase.from("comments").delete().eq("site_id", siteId).eq("page", CHECK_PAGE);
+      } catch {
+        /* best effort; the check page never renders on the live site anyway */
+      }
+    } else if (res.status === 429) {
+      // Got past the origin check, so writes work — just throttled right now.
+      writeOk = true;
+      writeStatus = "rate_limited";
+    } else if (res.body?.error === "origin_not_allowed") {
+      writeStatus = "origin_not_allowed";
+    } else if (res.body?.error === "captcha_failed") {
+      writeStatus = "captcha_required";
+    } else if (res.body?.error === "unknown_site") {
+      writeStatus = "unknown_site";
+    } else {
+      writeStatus = "error";
+    }
+  }
 
   return NextResponse.json({
-    ok: foundSiteId && foundScript,
-    foundSiteId,
-    foundScript,
+    ok: siteIdOk && scriptOk && writeOk,
+    scriptOk,
+    siteIdOk,
+    writeOk,
+    writeStatus,
+    origin,
+    checkedUrl: fetchedUrl,
   });
 }
