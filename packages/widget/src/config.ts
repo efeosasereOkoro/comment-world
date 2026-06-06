@@ -14,3 +14,8 @@ export const FUNCTIONS_URL: string = SUPABASE_URL
 
 /** localStorage key for remembering the commenter's name across sessions. */
 export const NAME_KEY = "commentbox::name";
+
+/** Public landing page for the product. Surfaced in the widget's "Powered by"
+ *  footer so a visitor who likes the tool can add it to their own site or share
+ *  it — a built-in growth loop. The `ref` param attributes installs to the widget. */
+export const MARKETING_URL = "https://comment-world-dashboard.vercel.app/?ref=widget";

@@ -9,7 +9,7 @@
  * Hit-testing across the shadow boundary uses event.composedPath(). */
 
 import type { Comment, CommentSnapshot, WidgetConfig } from "./types";
-import { NAME_KEY } from "./config";
+import { NAME_KEY, MARKETING_URL } from "./config";
 import { computePageKey } from "./page-key";
 import { getSelector, resolveAnchor, elementFromSelection } from "./selector";
 import { addHoverOutline, removeHoverOutline, addHighlight, removeHighlight } from "./host-decor";
@@ -540,10 +540,53 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
   panel.innerHTML =
     '<div class="cmt-panel__head"><span>Comments on this page</span>' +
     '<button type="button" class="cmt-close" aria-label="Close panel">&times;</button></div>' +
-    '<div class="cmt-panel__body"></div>';
+    '<div class="cmt-panel__body"></div>' +
+    // Growth loop: a visitor who likes leaving feedback here can add the widget to
+    // their own site or share it with someone who needs it. Kept low-key so it reads
+    // as attribution, not an ad.
+    '<div class="cmt-panel__foot">' +
+    '<span class="cmt-powered">Powered by <strong>commentbox</strong></span>' +
+    '<span class="cmt-powered__actions">' +
+    '<a class="cmt-cta" href="' +
+    MARKETING_URL +
+    '" target="_blank" rel="noopener">Add to your site →</a>' +
+    '<button type="button" class="cmt-share">Share</button>' +
+    "</span></div>";
   root.appendChild(panel);
   (panel.querySelector(".cmt-close") as HTMLElement).addEventListener("click", () => {
     panel.classList.remove("is-open");
+  });
+
+  // Share: native share sheet where available (mobile especially), otherwise copy the
+  // landing link to the clipboard and briefly confirm on the button itself.
+  const shareBtn = panel.querySelector(".cmt-share") as HTMLButtonElement;
+  shareBtn.addEventListener("click", async () => {
+    const shareData = {
+      title: "commentbox",
+      text: "Collect feedback on any page with commentbox — add it to your site in 2 minutes.",
+      url: MARKETING_URL,
+    };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+        return;
+      }
+    } catch {
+      // user dismissed the share sheet — nothing to do
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(MARKETING_URL);
+      const prev = shareBtn.textContent;
+      shareBtn.textContent = "Link copied ✓";
+      shareBtn.disabled = true;
+      setTimeout(() => {
+        shareBtn.textContent = prev;
+        shareBtn.disabled = false;
+      }, 1800);
+    } catch {
+      window.open(MARKETING_URL, "_blank", "noopener");
+    }
   });
 
   panelBtn.addEventListener("click", () => {
