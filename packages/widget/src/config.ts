@@ -15,7 +15,17 @@ export const FUNCTIONS_URL: string = SUPABASE_URL
 /** localStorage key for remembering the commenter's name across sessions. */
 export const NAME_KEY = "commentbox::name";
 
+/** localStorage key recording that the first-run coachmark has been dismissed,
+ *  so the onboarding hint shows only once per visitor. */
+export const COACHMARK_KEY = "commentbox::coachmark-seen";
+
 /** Public landing page for the product. Surfaced in the widget's "Powered by"
  *  footer so a visitor who likes the tool can add it to their own site or share
- *  it — a built-in growth loop. The `ref` param attributes installs to the widget. */
-export const MARKETING_URL = "https://comment-world-dashboard.vercel.app/?ref=widget";
+ *  it — a built-in growth loop. UTM params attribute installs/shares back to the
+ *  widget so the loop is measurable in analytics. */
+export const MARKETING_URL =
+  "https://comment-world-dashboard.vercel.app/?utm_source=widget&utm_medium=referral&utm_campaign=powered_by";
+
+/** Short pitch used as the share-sheet text and clipboard message. */
+export const SHARE_TEXT =
+  "Add commentbox to your site — collect feedback on any page in minutes.";

@@ -398,6 +398,11 @@
 
 .cmt-powered {
   color: var(--cw-text-muted);
+  text-decoration: none;
+}
+
+.cmt-powered:hover strong {
+  text-decoration: underline;
 }
 
 .cmt-powered strong {
@@ -498,4 +503,128 @@
   font-weight: var(--cw-fw-bold);
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+
+/* Inline composer status / validation (A1) — an ARIA live region announces save
+   errors and validation to assistive tech, replacing the old native alert(). */
+.cmt-status {
+  margin-bottom: 0.5rem;
+  font-size: var(--cw-fs-sm);
+  color: var(--cw-text-muted);
+}
+
+.cmt-status:empty {
+  display: none;
+}
+
+.cmt-status--error {
+  color: var(--cw-danger);
+  font-weight: var(--cw-fw-bold);
+}
+
+/* Touch bottom-sheet composer (S1). Pinned to the viewport edges and clamped to
+   100vw/100dvh so it never introduces horizontal overflow or escapes the screen —
+   the widget must not affect the host page's layout or responsiveness. */
+.cmt-popover--sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  top: auto;
+  width: 100%;
+  max-width: 100vw;
+  box-sizing: border-box;
+  border-radius: var(--cw-radius) var(--cw-radius) 0 0;
+  max-height: 85vh;
+  max-height: 85dvh;
+  z-index: 9600;
+}
+
+.cmt-popover--sheet .cmt-popover__body {
+  max-height: calc(85dvh - 3rem);
+}
+
+/* Touch confirm step (S1): a viewport-pinned bar to confirm/re-pick the tapped
+   target before composing. Box-sized + edge-pinned so it can't overflow the host. */
+.cmt-confirm {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9550;
+  box-sizing: border-box;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cw-space-xs);
+  padding: var(--cw-space-xs) var(--cw-space);
+  background: var(--cw-surface);
+  border-top: 1px solid var(--cw-border);
+  box-shadow: 0 -2px 12px rgba(0, 0, 0, 0.18);
+  font-family: var(--cw-font);
+  font-size: var(--cw-fs);
+  color: var(--cw-text);
+}
+
+.cmt-confirm__txt {
+  flex: 1 1 8rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmt-confirm__actions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 0.5rem;
+}
+
+/* First-run coachmark (S4): sits above the toolbar, clamped to the viewport width. */
+.cmt-coach {
+  position: fixed;
+  right: var(--cw-space);
+  bottom: calc(var(--cw-space) + 3.5rem);
+  z-index: 9100;
+  box-sizing: border-box;
+  width: min(18rem, calc(100vw - 2rem));
+  padding: 0.8rem;
+  background: var(--cw-surface);
+  border: 1px solid var(--cw-border);
+  border-radius: var(--cw-radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  font-family: var(--cw-font);
+  font-size: var(--cw-fs-sm);
+  color: var(--cw-text);
+}
+
+.cmt-coach__txt {
+  margin: 0 0 0.6rem;
+  line-height: 1.4;
+}
+
+.cmt-coach strong {
+  color: var(--cw-primary);
+}
+
+.cmt-coach__ok {
+  font-size: var(--cw-fs-sm);
+  padding: 0.35rem 0.75rem;
+}
+
+/* Coarse pointers (touch): larger hit targets, and 16px inputs to stop mobile zoom. */
+@media (hover: none), (pointer: coarse) {
+  .cmt-btn {
+    padding: 0.7rem 1rem;
+  }
+
+  .cmt-action {
+    padding: 0.6rem 1rem;
+  }
+
+  .cmt-popover--sheet .cmt-field input,
+  .cmt-popover--sheet .cmt-field textarea {
+    font-size: 1rem;
+    padding: 0.6rem;
+  }
 }

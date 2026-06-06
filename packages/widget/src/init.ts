@@ -9,7 +9,7 @@
  * Hit-testing across the shadow boundary uses event.composedPath(). */
 
 import type { Comment, CommentSnapshot, WidgetConfig } from "./types";
-import { NAME_KEY, MARKETING_URL } from "./config";
+import { NAME_KEY, MARKETING_URL, SHARE_TEXT, COACHMARK_KEY } from "./config";
 import { computePageKey } from "./page-key";
 import { getSelector, resolveAnchor, elementFromSelection } from "./selector";
 import { addHoverOutline, removeHoverOutline, addHighlight, removeHighlight } from "./host-decor";
@@ -21,6 +21,8 @@ interface WidgetState {
   hoverEl: Element | null;
   popover: HTMLElement | null;
   targetHighlight: Element | null;
+  /** Element to restore keyboard focus to when a dialog (popover) closes. */
+  returnFocus: HTMLElement | null;
 }
 
 // Inline style for the light-DOM pins overlay container (anchored at document origin).
@@ -53,7 +55,15 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     hoverEl: null,
     popover: null,
     targetHighlight: null,
+    returnFocus: null,
   };
+
+  // Coarse pointer / no hover (phones, tablets): switch to a touch-first commenting
+  // flow — tap-to-pin with a confirm step and a bottom-sheet composer — since hover
+  // outlines and precise element-clicking don't translate to touch.
+  const isCoarse =
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(hover: none), (pointer: coarse)").matches;
 
   // ---- small helpers -------------------------------------------------
 
@@ -215,16 +225,30 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
   function setMode(on: boolean): void {
     state.mode = on;
     addBtn.setAttribute("aria-pressed", String(on));
-    document.body.style.cursor = on ? "crosshair" : "";
+    // Crosshair only makes sense with a precise pointer; touch uses tap-to-pin.
+    document.body.style.cursor = on && !isCoarse ? "crosshair" : "";
     clearHover();
+    hideConfirm();
     if (on) {
-      showHint("Select text or click any element to comment. Press Esc to cancel.");
-      document.addEventListener("mousemove", onHoverMove, true);
-      document.addEventListener("click", onPlaceClick, true);
+      dismissCoachmark();
+      if (isCoarse) {
+        showHint("Tap any part of the page to comment. Press Esc to cancel.");
+        document.addEventListener("click", onTapTarget, true);
+      } else {
+        showHint(
+          "Click any element (or select text) to comment — or use ↑/↓ then Enter. Esc to cancel."
+        );
+        document.addEventListener("mousemove", onHoverMove, true);
+        document.addEventListener("click", onPlaceClick, true);
+        document.addEventListener("keydown", onModeKey, true);
+        kbStart();
+      }
     } else {
       hideHint();
       document.removeEventListener("mousemove", onHoverMove, true);
       document.removeEventListener("click", onPlaceClick, true);
+      document.removeEventListener("click", onTapTarget, true);
+      document.removeEventListener("keydown", onModeKey, true);
     }
   }
 
@@ -251,6 +275,16 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     }
   }
 
+  /** Anchor a comment to a chosen element and open the composer. Shared by mouse click,
+   *  keyboard Enter, and the touch confirm step so all three paths behave identically. */
+  function commitTarget(targetEl: Element, quote: string, x: number, y: number): void {
+    const selector = getSelector(targetEl);
+    const snapshot = captureSnapshot(targetEl, quote);
+    clearHover();
+    setMode(false);
+    openComposer(selector || "", quote, x, y, { snapshot });
+  }
+
   function onPlaceClick(e: MouseEvent): void {
     if (eventInWidget(e)) return;
     e.preventDefault();
@@ -267,23 +301,152 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
       targetEl = (e.composedPath()[0] as Element) ?? (e.target as Element);
     }
     if (!targetEl) return;
+    commitTarget(targetEl, quote, e.pageX, e.pageY);
+  }
 
-    const selector = getSelector(targetEl);
-    const snapshot = captureSnapshot(targetEl, quote);
+  // ---- keyboard target selection (A2) --------------------------------
+  // In comment mode a keyboard user can step across page content with ↑/↓ (←/→) and
+  // press Enter to comment on the focused element — no mouse required. We never mutate
+  // host tabindex; we drive a roving outline over a snapshot of candidate elements.
+  let kbTargets: Element[] = [];
+  let kbIndex = -1;
+
+  function kbCandidates(): Element[] {
+    const sel =
+      "h1,h2,h3,h4,h5,h6,p,li,blockquote,figure,img,button,a,pre,td,th,label,summary";
+    return Array.from(document.body.querySelectorAll(sel)).filter((el) => {
+      if (uiHost.contains(el) || pins.contains(el)) return false;
+      const r = el.getBoundingClientRect();
+      if (r.width < 8 || r.height < 8) return false;
+      const cs = getComputedStyle(el);
+      return cs.visibility !== "hidden" && cs.display !== "none";
+    });
+  }
+
+  function kbStart(): void {
+    kbTargets = kbCandidates();
+    kbIndex = kbTargets.findIndex((el) => {
+      const r = el.getBoundingClientRect();
+      return r.top >= 0 && r.top < window.innerHeight;
+    });
+    if (kbIndex < 0) kbIndex = 0;
+    kbFocus();
+  }
+
+  function kbMove(dir: number): void {
+    if (!kbTargets.length) kbTargets = kbCandidates();
+    if (!kbTargets.length) return;
+    kbIndex = (kbIndex + dir + kbTargets.length) % kbTargets.length;
+    kbFocus();
+  }
+
+  function kbFocus(): void {
+    const el = kbTargets[kbIndex];
+    if (!el) return;
     clearHover();
-    setMode(false);
-    openComposer(selector || "", quote, e.pageX, e.pageY, { snapshot });
+    state.hoverEl = el;
+    addHoverOutline(el);
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  function onModeKey(e: KeyboardEvent): void {
+    if (!state.mode) return;
+    const k = e.key;
+    if (k === "ArrowDown" || k === "ArrowRight") {
+      e.preventDefault();
+      kbMove(1);
+    } else if (k === "ArrowUp" || k === "ArrowLeft") {
+      e.preventDefault();
+      kbMove(-1);
+    } else if (k === "Enter" && state.hoverEl) {
+      e.preventDefault();
+      const el = state.hoverEl;
+      const r = el.getBoundingClientRect();
+      commitTarget(el, "", r.left + window.scrollX, r.bottom + window.scrollY);
+    }
+  }
+
+  // ---- touch tap-to-pin + confirm (S1) -------------------------------
+  let confirmBar: HTMLElement | null = null;
+
+  function onTapTarget(e: MouseEvent): void {
+    if (eventInWidget(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const sel = window.getSelection();
+    let quote = "";
+    let el: Element | null;
+    if (sel && !sel.isCollapsed && sel.toString().trim()) {
+      quote = sel.toString().trim();
+      el = elementFromSelection(sel);
+    } else {
+      el = (e.composedPath()[0] as Element) ?? (e.target as Element);
+    }
+    if (!el) return;
+    clearHover();
+    state.hoverEl = el;
+    addHoverOutline(el);
+    showConfirm(el, quote);
+  }
+
+  function showConfirm(el: Element, quote: string): void {
+    hideConfirm();
+    hideHint();
+    confirmBar = document.createElement("div");
+    confirmBar.className = "cmt-confirm";
+    confirmBar.setAttribute("role", "dialog");
+    confirmBar.setAttribute("aria-label", "Confirm comment location");
+    const label = quote
+      ? "“" + (quote.length > 40 ? quote.slice(0, 40).trimEnd() + "…" : quote) + "”"
+      : "this " + el.tagName.toLowerCase();
+    confirmBar.innerHTML =
+      '<span class="cmt-confirm__txt">Comment on ' + esc(label) + "?</span>" +
+      '<span class="cmt-confirm__actions">' +
+      '<button type="button" class="cmt-action cmt-action--secondary cmt-confirm__again">Pick another</button>' +
+      '<button type="button" class="cmt-action cmt-action--primary cmt-confirm__ok">Comment here</button>' +
+      "</span>";
+    root.appendChild(confirmBar);
+    (confirmBar.querySelector(".cmt-confirm__ok") as HTMLElement).addEventListener("click", () => {
+      const r = el.getBoundingClientRect();
+      hideConfirm();
+      commitTarget(el, quote, r.left + window.scrollX, r.bottom + window.scrollY);
+    });
+    (confirmBar.querySelector(".cmt-confirm__again") as HTMLElement).addEventListener(
+      "click",
+      () => {
+        clearHover();
+        hideConfirm();
+        if (state.mode) showHint("Tap any part of the page to comment. Press Esc to cancel.");
+      }
+    );
+    (confirmBar.querySelector(".cmt-confirm__ok") as HTMLElement).focus();
+  }
+
+  function hideConfirm(): void {
+    if (confirmBar) {
+      confirmBar.remove();
+      confirmBar = null;
+    }
   }
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    if (state.popover) closePopover();
-    else if (state.mode) setMode(false);
+    if (state.popover) closePopover(true);
+    else if (confirmBar) {
+      clearHover();
+      hideConfirm();
+      if (state.mode) showHint("Tap any part of the page to comment. Press Esc to cancel.");
+    } else if (state.mode) setMode(false);
   });
 
   // ---- popover plumbing ----------------------------------------------
 
-  function closePopover(): void {
+  /** Close the active popover. When `restore` is set (user-initiated close via Esc,
+   *  the close button, or Cancel) move focus back to the element that opened it, so
+   *  keyboard users aren't dropped at the top of the page. */
+  function closePopover(restore = false): void {
+    const rf = state.returnFocus;
+    state.returnFocus = null;
     if (state.popover) {
       state.popover.remove();
       state.popover = null;
@@ -292,10 +455,21 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
       removeHighlight(state.targetHighlight);
       state.targetHighlight = null;
     }
+    if (restore) {
+      if (rf && rf.isConnected) rf.focus();
+      else addBtn.focus();
+    }
   }
 
   function placePopover(pop: HTMLElement, x: number, y: number): void {
     root.appendChild(pop);
+    // Touch: render as a bottom sheet pinned to the viewport (positioned purely by CSS).
+    // This keeps the composer reachable above the on-screen keyboard and avoids precise
+    // coordinate math that doesn't translate to small screens.
+    if (isCoarse) {
+      pop.classList.add("cmt-popover--sheet");
+      return;
+    }
     const w = pop.offsetWidth;
     const h = pop.offsetHeight;
     const left = Math.min(x, window.scrollX + document.documentElement.clientWidth - w - 8);
@@ -305,6 +479,37 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     }
     pop.style.left = Math.max(window.scrollX + 8, left) + "px";
     pop.style.top = top + "px";
+  }
+
+  /** Trap Tab focus within an open dialog popover so keyboard users can't escape it
+   *  into the host page behind the modal. The listener dies with the popover on close. */
+  function trapFocus(pop: HTMLElement): void {
+    pop.addEventListener("keydown", (e) => {
+      if (e.key !== "Tab") return;
+      const focusable = Array.from(
+        pop.querySelectorAll<HTMLElement>(
+          'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => !(el as HTMLButtonElement).disabled && el.offsetParent !== null);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = root.activeElement;
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    });
+  }
+
+  /** Record the element to return focus to when the about-to-open dialog closes. */
+  function captureReturnFocus(): void {
+    const active = document.activeElement;
+    state.returnFocus =
+      active instanceof HTMLElement && active !== document.body ? active : addBtn;
   }
 
   function highlightTarget(selector: string, quote?: string): Element | null {
@@ -335,6 +540,7 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
   ): void {
     const parentId = opts?.parentId ?? null;
     const snapshot = opts?.snapshot ?? null;
+    captureReturnFocus();
     closePopover();
     const el = highlightTarget(selector, quote);
     if (el && !x) {
@@ -344,11 +550,15 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     }
 
     const savedName = localStorage.getItem(NAME_KEY) || "";
+    const titleId = "cmt-title-" + Math.random().toString(36).slice(2, 8);
     const pop = document.createElement("div");
     pop.className = "cmt-popover";
     pop.dataset.kind = "composer";
+    pop.setAttribute("role", "dialog");
+    pop.setAttribute("aria-modal", "true");
+    pop.setAttribute("aria-labelledby", titleId);
     pop.innerHTML =
-      '<div class="cmt-popover__head"><span>' +
+      '<div class="cmt-popover__head"><span id="' + titleId + '">' +
       (parentId ? "Write a reply" : "Add a comment") +
       "</span>" +
       '<button type="button" class="cmt-close" aria-label="Close">&times;</button></div>' +
@@ -358,6 +568,7 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
       '<input type="text" class="cmt-name" value="' + esc(savedName) + '" placeholder="e.g. Jane"></div>' +
       '<div class="cmt-field"><label>Comment</label>' +
       '<textarea class="cmt-text" placeholder="Write your comment"></textarea></div>' +
+      '<div class="cmt-status" role="status" aria-live="polite"></div>' +
       '<div class="cmt-actions">' +
       '<button type="button" class="cmt-action cmt-action--secondary cmt-cancel">Cancel</button>' +
       '<button type="button" class="cmt-action cmt-action--primary cmt-save">Save</button>' +
@@ -365,25 +576,39 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
 
     state.popover = pop;
     placePopover(pop, x || 0, y || 0);
+    trapFocus(pop);
 
     const nameInput = pop.querySelector(".cmt-name") as HTMLInputElement;
     const textInput = pop.querySelector(".cmt-text") as HTMLTextAreaElement;
     const saveBtn = pop.querySelector(".cmt-save") as HTMLButtonElement;
+    const statusEl = pop.querySelector(".cmt-status") as HTMLElement;
     (savedName ? textInput : nameInput).focus();
 
-    (pop.querySelector(".cmt-close") as HTMLElement).addEventListener("click", closePopover);
-    (pop.querySelector(".cmt-cancel") as HTMLElement).addEventListener("click", closePopover);
+    function setStatus(msg: string, isError: boolean): void {
+      statusEl.textContent = msg;
+      statusEl.classList.toggle("cmt-status--error", isError);
+    }
+
+    (pop.querySelector(".cmt-close") as HTMLElement).addEventListener("click", () =>
+      closePopover(true)
+    );
+    (pop.querySelector(".cmt-cancel") as HTMLElement).addEventListener("click", () =>
+      closePopover(true)
+    );
     saveBtn.addEventListener("click", async () => {
       const name = nameInput.value.trim();
       const text = textInput.value.trim();
       if (!name) {
+        setStatus("Please add your name.", true);
         nameInput.focus();
         return;
       }
       if (!text) {
+        setStatus("Please write a comment.", true);
         textInput.focus();
         return;
       }
+      setStatus("", false);
       localStorage.setItem(NAME_KEY, name);
       saveBtn.disabled = true;
       saveBtn.textContent = "Saving…";
@@ -400,9 +625,9 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
         saveBtn.textContent = "Save";
         const code = (err as { code?: string }).code;
         if (code === "rate_limited") {
-          alert("You're commenting a bit too quickly. Please wait a moment and try again.");
+          setStatus("You're commenting a bit too quickly — please wait a moment.", true);
         } else {
-          alert("Could not save your comment. Please try again.");
+          setStatus("Could not save your comment. Please try again.", true);
         }
       }
     });
@@ -411,22 +636,30 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
   // ---- thread (existing comments on an element) ----------------------
 
   function openThread(selector: string, anchorEl: HTMLElement): void {
+    captureReturnFocus();
     closePopover();
     const groupQuote = state.comments.find((c) => c.selector === selector)?.quote;
     highlightTarget(selector, groupQuote);
     const rect = anchorEl.getBoundingClientRect();
+    const titleId = "cmt-title-" + Math.random().toString(36).slice(2, 8);
     const pop = document.createElement("div");
     pop.className = "cmt-popover";
     pop.dataset.kind = "thread";
     pop.dataset.selector = selector;
+    pop.setAttribute("role", "dialog");
+    pop.setAttribute("aria-modal", "true");
+    pop.setAttribute("aria-labelledby", titleId);
     pop.innerHTML =
-      '<div class="cmt-popover__head"><span>Comments</span>' +
+      '<div class="cmt-popover__head"><span id="' + titleId + '">Comments</span>' +
       '<button type="button" class="cmt-close" aria-label="Close">&times;</button></div>' +
       '<div class="cmt-popover__body"></div>';
     state.popover = pop;
     renderThreadBody(pop.querySelector(".cmt-popover__body") as HTMLElement, selector);
     placePopover(pop, rect.right + window.scrollX, rect.top + window.scrollY);
-    (pop.querySelector(".cmt-close") as HTMLElement).addEventListener("click", closePopover);
+    trapFocus(pop);
+    const closeBtn = pop.querySelector(".cmt-close") as HTMLElement;
+    closeBtn.addEventListener("click", () => closePopover(true));
+    closeBtn.focus();
   }
 
   /** Up-to-two-letter initials for an avatar (first + last word, else first two chars). */
@@ -437,11 +670,33 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   }
 
-  /** Deterministic avatar color from the name, so the same person is always the same hue. */
+  function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+    s /= 100;
+    l /= 100;
+    const k = (n: number) => (n + h / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = (n: number) => l - a * Math.max(-1, Math.min(k(n) - 3, 9 - k(n), 1));
+    return [Math.round(f(0) * 255), Math.round(f(8) * 255), Math.round(f(4) * 255)];
+  }
+
+  /** Contrast ratio of a color against white text, per WCAG relative-luminance formula. */
+  function contrastWithWhite([r, g, b]: [number, number, number]): number {
+    const lum = [r, g, b]
+      .map((v) => v / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+    const L = 0.2126 * lum[0] + 0.7152 * lum[1] + 0.0722 * lum[2];
+    return 1.05 / (L + 0.05); // white luminance is 1.0
+  }
+
+  /** Deterministic avatar color from the name (same person → same hue). Lightness is
+   *  reduced until white text meets WCAG AA (≥4.5:1), so the initials stay legible on
+   *  every hue (yellow/cyan would otherwise be too light at a fixed lightness). */
   function avatarColor(name: string): string {
     let h = 0;
     for (let i = 0; i < (name || "").length; i++) h = (h * 31 + name.charCodeAt(i)) % 360;
-    return "hsl(" + h + ", 52%, 42%)";
+    let l = 42;
+    while (l > 18 && contrastWithWhite(hslToRgb(h, 52, l)) < 4.5) l -= 3;
+    return "hsl(" + h + ", 52%, " + l + "%)";
   }
 
   /** Shared comment renderer: avatar + (name / time) header + body text. Used for both
@@ -545,7 +800,9 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     // their own site or share it with someone who needs it. Kept low-key so it reads
     // as attribution, not an ad.
     '<div class="cmt-panel__foot">' +
-    '<span class="cmt-powered">Powered by <strong>commentbox</strong></span>' +
+    '<a class="cmt-powered" href="' +
+    MARKETING_URL +
+    '" target="_blank" rel="noopener">Powered by <strong>commentbox</strong></a>' +
     '<span class="cmt-powered__actions">' +
     '<a class="cmt-cta" href="' +
     MARKETING_URL +
@@ -563,7 +820,7 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
   shareBtn.addEventListener("click", async () => {
     const shareData = {
       title: "commentbox",
-      text: "Collect feedback on any page with commentbox — add it to your site in 2 minutes.",
+      text: SHARE_TEXT,
       url: MARKETING_URL,
     };
     try {
@@ -734,10 +991,48 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     }
   }
 
+  // ---- first-run coachmark (S4) --------------------------------------
+  // A one-time callout so a first-time visitor understands that "Add comment" attaches
+  // feedback to the page. Shown once per visitor (localStorage), dismissed on "Got it"
+  // or as soon as they enter comment mode.
+  let coach: HTMLElement | null = null;
+  function maybeCoachmark(): void {
+    try {
+      if (localStorage.getItem(COACHMARK_KEY)) return;
+    } catch {
+      return;
+    }
+    coach = document.createElement("div");
+    coach.className = "cmt-coach";
+    coach.setAttribute("role", "note");
+    coach.innerHTML =
+      '<p class="cmt-coach__txt">New here? Press <strong>Add comment</strong>, then ' +
+      (isCoarse ? "tap" : "click") +
+      " any part of the page to leave feedback.</p>" +
+      '<button type="button" class="cmt-action cmt-action--primary cmt-coach__ok">Got it</button>';
+    root.appendChild(coach);
+    (coach.querySelector(".cmt-coach__ok") as HTMLElement).addEventListener(
+      "click",
+      dismissCoachmark
+    );
+  }
+  function dismissCoachmark(): void {
+    if (coach) {
+      coach.remove();
+      coach = null;
+    }
+    try {
+      localStorage.setItem(COACHMARK_KEY, "1");
+    } catch {
+      /* private mode — fine, it'll just show again next visit */
+    }
+  }
+
   // ---- init -----------------------------------------------------------
 
   updateCount();
   renderPins();
+  maybeCoachmark();
   void store.subscribe();
 
   // ---- teardown -------------------------------------------------------
@@ -746,6 +1041,8 @@ export function init(config: WidgetConfig, root: ShadowRoot): () => void {
     setMode(false);
     closePopover();
     hideHint();
+    hideConfirm();
+    if (coach) coach.remove();
     store.dispose();
     window.removeEventListener("scroll", scheduleReposition, true);
     window.removeEventListener("resize", scheduleReposition);
