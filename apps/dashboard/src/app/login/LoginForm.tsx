@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -8,6 +8,7 @@ export default function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const redirectTo = params.get("redirect") || "/dashboard";
+  const confirmed = params.get("confirmed");
 
   const [mode, setMode] = useState<"signin" | "signup">("signin");
   const [email, setEmail] = useState("");
@@ -15,6 +16,15 @@ export default function LoginForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+
+  // After a visitor confirms their email, Supabase sends them back here with
+  // ?confirmed=1. Land them on the sign-in form with a clear next step.
+  useEffect(() => {
+    if (confirmed) {
+      setMode("signin");
+      setNotice("You've confirmed your email address. Sign in to get started.");
+    }
+  }, [confirmed]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,7 +43,18 @@ export default function LoginForm() {
       router.push(redirectTo);
       router.refresh();
     } else {
-      const { data, error } = await supabase.auth.signUp({ email, password });
+      const { data, error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          // When they confirm from their inbox, bring them back to this page
+          // (the sign-up / sign-in page) with a clear next step.
+          emailRedirectTo:
+            typeof window !== "undefined"
+              ? `${window.location.origin}/login?confirmed=1`
+              : undefined,
+        },
+      });
       if (error) {
         setError(error.message);
         setBusy(false);
@@ -44,7 +65,9 @@ export default function LoginForm() {
         router.push(redirectTo);
         router.refresh();
       } else {
-        setNotice("Account created. Check your email to confirm, then sign in.");
+        setNotice(
+          `Check your email. We've sent a confirmation link to ${email}. Select it to confirm your account, then come back here to sign in.`
+        );
         setMode("signin");
         setBusy(false);
       }

@@ -165,3 +165,46 @@ lost**: no pin is drawn, but it still appears in the side panel under a "Not on 
 page" section with its full text, so reviewers never lose a comment to DOM drift. The
 text search skips the widget's own UI (shadow host + pins layer) so it can't match
 itself.
+
+## Email notifications & auth flow (Phase 7)
+
+Two pieces of messaging, both written in plain, GDS-style service-design English (say
+what happened, then the one thing to do next):
+
+### 1. Email the owner when a comment arrives
+
+After the `post-comment` Edge Function writes a row, it emails the site owner via
+[Resend](https://resend.com). The send is **best-effort and out of the request path** —
+it runs in the background (`EdgeRuntime.waitUntil`) and any failure is logged, never
+thrown, so a mail outage can't break commenting. The owner address is read from
+`profiles.email`, falling back to the auth record.
+
+Like the CAPTCHA, the feature is **inert until configured** — no key, no send, nothing
+breaks. To enable it, verify a sending domain in Resend, then set the function secrets:
+
+| Env var | Default | Meaning |
+| --- | --- | --- |
+| `RESEND_API_KEY` | _(unset → disabled)_ | Resend API key. Presence enables notifications. |
+| `NOTIFY_FROM` | `commentbox <notifications@commentbox.app>` | From address on a Resend-verified domain. |
+| `DASHBOARD_URL` | `https://comment-world-dashboard.vercel.app` | Base for the email's "Review and reply" link. |
+
+```bash
+supabase secrets set RESEND_API_KEY=re_xxx NOTIFY_FROM="commentbox <hello@yourdomain>"
+supabase functions deploy post-comment
+```
+
+The email states who commented, the comment text, the page, and whether it is live or
+**waiting for approval** (when the site moderates), with a single "Review and reply"
+button to the dashboard.
+
+### 2. After confirming their email, owners land back on the sign-up page
+
+Sign-up passes `emailRedirectTo = <origin>/login?confirmed=1`. When a new owner clicks
+the confirmation link in their inbox, they come back to the sign-in page, which shows a
+clear confirmation — _"You've confirmed your email address. Sign in to get started."_ —
+and defaults to the sign-in form.
+
+> **One-time Supabase setting:** add the redirect target to **Auth → URL Configuration →
+> Redirect URLs** so Supabase will honour it:
+> `https://comment-world-dashboard.vercel.app/login` and, for local dev,
+> `http://localhost:3001/login`.

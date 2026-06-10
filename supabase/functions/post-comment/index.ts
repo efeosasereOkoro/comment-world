@@ -34,6 +34,18 @@ const RATE_LIMIT_SALT = Deno.env.get("RATE_LIMIT_SALT") ?? "commentbox-rate-salt
 const TURNSTILE_SECRET = Deno.env.get("TURNSTILE_SECRET") ?? "";
 const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 
+// Optional owner email notifications. Sent via Resend, but ONLY when a key is
+// configured — so the path is inert until you provision it, exactly like the
+// CAPTCHA above. A mail outage must never break commenting, so the send is
+// fire-and-forget after the row is safely written.
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") ?? "";
+const RESEND_API_URL = "https://api.resend.com/emails";
+// Must be an address on a domain you've verified in Resend.
+const NOTIFY_FROM = Deno.env.get("NOTIFY_FROM") ?? "commentbox <notifications@commentbox.app>";
+// Where the "review and reply" link points (the owner's dashboard).
+const DASHBOARD_URL =
+  Deno.env.get("DASHBOARD_URL") ?? "https://comment-world-dashboard.vercel.app";
+
 const MAX_NAME = 120;
 const MAX_TEXT = 4000;
 const MAX_QUOTE = 2000;
@@ -141,6 +153,133 @@ async function turnstileOk(token: string | null, ip: string | null): Promise<boo
   }
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** Run a promise in the background so the HTTP response isn't held up, and so a
+ *  failure can never bubble into the request path. Uses the platform's waitUntil
+ *  when available so the worker isn't torn down before the send finishes. */
+function runBackground(p: Promise<unknown>): void {
+  const guarded = p.catch((e) => console.error("[notify] failed:", e));
+  // deno-lint-ignore no-explicit-any
+  const er = (globalThis as any).EdgeRuntime;
+  if (er && typeof er.waitUntil === "function") er.waitUntil(guarded);
+}
+
+/** Resolve the site owner's email. Prefers the profiles mirror; falls back to
+ *  the auth record so a missing profile row doesn't silently drop the email. */
+async function ownerEmail(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  ownerId: string,
+): Promise<string | null> {
+  const { data } = await admin
+    .from("profiles")
+    .select("email")
+    .eq("id", ownerId)
+    .maybeSingle();
+  if (data?.email) return data.email as string;
+  try {
+    const { data: u } = await admin.auth.admin.getUserById(ownerId);
+    return u?.user?.email ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Build the owner notification. Copy follows GDS service-design style: plain
+ *  English, sentence case, says what happened and the one thing to do next. */
+function buildOwnerEmail(opts: {
+  siteName: string;
+  author: string;
+  content: string;
+  page: string;
+  pending: boolean;
+}): { subject: string; text: string; html: string } {
+  const { siteName, author, content, page, pending } = opts;
+  const reviewUrl = DASHBOARD_URL.replace(/\/+$/, "") + "/dashboard";
+  const snippet = content.length > 600 ? content.slice(0, 600) + "…" : content;
+  const subject = pending
+    ? `New comment to review on ${siteName}`
+    : `New comment on ${siteName}`;
+  const statusLine = pending
+    ? "This comment is waiting for you to approve it. It will not appear on your site until you do."
+    : "This comment is now live on your site.";
+
+  const text = [
+    `${author} left a comment on ${siteName}.`,
+    "",
+    `"${snippet}"`,
+    "",
+    `Page: ${page}`,
+    "",
+    statusLine,
+    "",
+    `Review and reply: ${reviewUrl}`,
+    "",
+    "—",
+    `You are getting this email because you own ${siteName} on commentbox.`,
+  ].join("\n");
+
+  const html = `<!doctype html><html lang="en"><body style="margin:0;background:#f3f4f6;padding:24px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0b1020;line-height:1.5;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;border:1px solid #e5e7eb;">
+    <tr><td style="padding:28px 28px 8px;">
+      <h1 style="margin:0 0 4px;font-size:18px;line-height:1.3;">${escapeHtml(subject)}</h1>
+      <p style="margin:0 0 16px;color:#4b5563;font-size:14px;">${escapeHtml(author)} left a comment on ${escapeHtml(siteName)}.</p>
+      <blockquote style="margin:0 0 16px;padding:12px 16px;background:#f9fafb;border-left:3px solid #00267f;border-radius:0 8px 8px 0;font-size:15px;white-space:pre-wrap;">${escapeHtml(snippet)}</blockquote>
+      <p style="margin:0 0 4px;color:#6b7280;font-size:13px;">Page</p>
+      <p style="margin:0 0 16px;font-size:14px;word-break:break-all;">${escapeHtml(page)}</p>
+      <p style="margin:0 0 20px;font-size:14px;color:#4b5563;">${escapeHtml(statusLine)}</p>
+      <a href="${escapeHtml(reviewUrl)}" style="display:inline-block;background:#00267f;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:11px 20px;border-radius:8px;">Review and reply</a>
+    </td></tr>
+    <tr><td style="padding:20px 28px 28px;">
+      <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 12px;" />
+      <p style="margin:0;color:#9ca3af;font-size:12px;">You are getting this email because you own ${escapeHtml(siteName)} on commentbox.</p>
+    </td></tr>
+  </table>
+</body></html>`;
+
+  return { subject, text, html };
+}
+
+/** Email the site owner about a new comment. Best-effort: any failure is logged,
+ *  never thrown, so the comment write is unaffected. */
+async function notifyOwner(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  opts: {
+    ownerId: string;
+    siteName: string;
+    author: string;
+    content: string;
+    page: string;
+    pending: boolean;
+  },
+): Promise<void> {
+  const to = await ownerEmail(admin, opts.ownerId);
+  if (!to) {
+    console.warn("[notify] no owner email for site owner", opts.ownerId);
+    return;
+  }
+  const { subject, text, html } = buildOwnerEmail(opts);
+  const res = await fetch(RESEND_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from: NOTIFY_FROM, to, subject, text, html }),
+  });
+  if (!res.ok) {
+    console.error("[notify] resend error", res.status, await res.text());
+  }
+}
+
 Deno.serve(async (req) => {
   const origin = req.headers.get("Origin");
 
@@ -182,7 +321,7 @@ Deno.serve(async (req) => {
 
   const { data: site, error: siteErr } = await admin
     .from("sites")
-    .select("id, allowed_origins, moderation_enabled")
+    .select("id, name, owner_id, allowed_origins, moderation_enabled")
     .eq("id", siteId)
     .maybeSingle();
 
@@ -253,6 +392,22 @@ Deno.serve(async (req) => {
   });
 
   if (insErr) return json(500, { error: "insert_failed" }, origin);
+
+  // ---- notify the owner (best-effort, only when email is configured) --------
+  // The row is already written; this runs in the background and can never affect
+  // the response or the comment itself.
+  if (RESEND_API_KEY && site.owner_id) {
+    runBackground(
+      notifyOwner(admin, {
+        ownerId: site.owner_id as string,
+        siteName: (site.name as string) ?? "your site",
+        author: name,
+        content: text,
+        page,
+        pending: status === "pending",
+      }),
+    );
+  }
 
   return json(200, { ok: true, status }, origin);
 });
